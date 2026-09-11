@@ -1266,8 +1266,11 @@
 {#if !session}
 <div class="gate" on:paste={handleGatePaste}>
   <div class="glass gate-card">
+    <div class="gate-disc" aria-label="Petri Hardware Disc">
+      <img class="gate-logo" src={petriIcon} alt="Petri" />
+    </div>
     <button type="button" class="gate-login-btn" on:click={handleLoginClick} aria-label="Login">
-      <svg class="gh-icon" viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true">
+      <svg class="gh-icon" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true">
         <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
       </svg>
       <span>Login</span>
@@ -1702,10 +1705,10 @@
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    min-height: 72px;
-    padding: 0 8px 0 40px;
-    gap: 24px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    min-height: 88px;
+    padding: 0 16px 0 44px;
+    gap: 28px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
     background: #080a0d;
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -1716,7 +1719,7 @@
     align-items: center;
     gap: 28px;
     padding: 18px 0;
-    font-size: 13px;
+    font-size: 14px;
     min-width: 0;
   }
   .drag {
@@ -1727,32 +1730,35 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
     color: var(--ink);
     flex-shrink: 0;
   }
   .brand-icon {
     display: block;
-    width: 56px;
-    height: 56px;
+    width: 68px;
+    height: 68px;
     border-radius: 50%;
-    object-fit: cover;
-    background: #000;
+    object-fit: contain;
+    padding: 6px;
+    background: radial-gradient(circle at 35% 30%, #2a3140 0%, #10131a 80%);
+    border: 1.5px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7), inset 0 1px 2px rgba(255, 255, 255, 0.2);
   }
   .brand-copy {
     display: flex;
     flex-direction: column;
-    line-height: 1.05;
+    line-height: 1.1;
   }
   .brand-name {
-    font-size: 20px;
-    font-weight: 600;
-    letter-spacing: 0.28em;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.3em;
   }
   .brand-by {
     font-style: normal;
-    font-size: 9px;
-    letter-spacing: 0.18em;
+    font-size: 11px;
+    letter-spacing: 0.22em;
     color: var(--muted);
     text-transform: lowercase;
   }
@@ -2258,73 +2264,102 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: clamp(24px, 5vw, 64px);
+    padding: clamp(32px, 6vw, 72px);
   }
   .gate-card {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 24px;
-    padding: clamp(48px, 8vw, 84px) clamp(40px, 8vw, 96px);
-    border-radius: 32px;
-    max-width: 580px;
+    gap: 36px;
+    padding: clamp(52px, 8vw, 92px) clamp(44px, 8vw, 96px);
+    border-radius: 36px;
+    max-width: 600px;
     width: 100%;
     text-align: center;
     background: #0a0c10 !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
-    box-shadow: 0 32px 80px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    border: 1.5px solid rgba(255, 255, 255, 0.14) !important;
+    box-shadow: 0 40px 100px rgba(0, 0, 0, 0.88), inset 0 1px 0 rgba(255, 255, 255, 0.12);
     backdrop-filter: blur(32px);
     -webkit-backdrop-filter: blur(32px);
+  }
+  .gate-disc {
+    position: relative;
+    width: clamp(180px, 26vw, 260px);
+    height: clamp(180px, 26vw, 260px);
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #252b38 0%, #12151d 60%, #080a0e 100%);
+    border: 2.5px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.9), inset 0 2px 6px rgba(255, 255, 255, 0.25), inset 0 -4px 12px rgba(0, 0, 0, 0.95);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .gate-disc::before {
+    content: "";
+    position: absolute;
+    inset: 12px;
+    border-radius: 50%;
+    border: 1.5px dashed rgba(255, 255, 255, 0.2);
+    pointer-events: none;
+  }
+  .gate-logo {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.8));
+    display: block;
   }
   .gate-login-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 18px;
+    gap: 20px;
     width: 100%;
-    min-height: 80px;
-    padding: 0 40px;
-    border-radius: 20px;
-    background: linear-gradient(180deg, rgba(32, 38, 50, 0.98) 0%, rgba(14, 17, 23, 0.99) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.6), 0 16px 36px rgba(0, 0, 0, 0.7);
+    min-height: 88px;
+    padding: 0 44px;
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgba(34, 40, 54, 0.98) 0%, rgba(14, 17, 24, 0.99) 100%);
+    border: 1.5px solid rgba(255, 255, 255, 0.22);
+    box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.26), inset 0 -1.5px 0 rgba(0, 0, 0, 0.6), 0 20px 48px rgba(0, 0, 0, 0.75);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     color: #f8fafc;
-    font-size: 22px;
-    font-weight: 650;
-    letter-spacing: 0.08em;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
     cursor: pointer;
     transition: transform 120ms var(--ease-out), background 160ms var(--ease-out), border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
     user-select: none;
   }
   .gate-login-btn:hover {
-    background: linear-gradient(180deg, rgba(46, 54, 70, 0.98) 0%, rgba(20, 24, 34, 0.99) 100%);
-    border-color: rgba(255, 255, 255, 0.35);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), inset 0 -1px 0 rgba(0, 0, 0, 0.7), 0 20px 48px rgba(0, 0, 0, 0.85);
+    background: linear-gradient(180deg, rgba(48, 56, 76, 0.98) 0%, rgba(20, 25, 36, 0.99) 100%);
+    border-color: rgba(255, 255, 255, 0.38);
+    box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.38), inset 0 -1.5px 0 rgba(0, 0, 0, 0.7), 0 24px 56px rgba(0, 0, 0, 0.9);
   }
   .gate-login-btn:active {
     transform: translateY(2px) scale(0.985);
-    background: linear-gradient(180deg, rgba(10, 12, 16, 0.99) 0%, rgba(24, 28, 38, 0.99) 100%);
-    box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.9), 0 4px 12px rgba(0, 0, 0, 0.5);
+    background: linear-gradient(180deg, rgba(10, 12, 16, 0.99) 0%, rgba(26, 30, 42, 0.99) 100%);
+    box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.95), 0 4px 12px rgba(0, 0, 0, 0.5);
   }
   .gate-login-btn .gh-icon {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     flex-shrink: 0;
   }
   .device-code-chip {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 28px;
     font-weight: 700;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.24em;
     color: #f1f5f9;
-    padding: 16px 32px;
+    padding: 16px 36px;
     border-radius: 16px;
     background: #080a0e;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+    border: 1.5px solid rgba(255, 255, 255, 0.2);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
   }
   .prompt-box {
     width: 100%;
@@ -2373,30 +2408,42 @@
 
   @media (pointer: coarse), (max-width: 1024px) {
     .gate-card {
-      max-width: 92vw;
-      padding: clamp(48px, 10vw, 96px) clamp(24px, 8vw, 64px);
+      max-width: 94vw;
+      padding: clamp(48px, 10vw, 96px) clamp(24px, 6vw, 64px);
+    }
+    .gate-disc {
+      width: clamp(200px, 32vw, 280px);
+      height: clamp(200px, 32vw, 280px);
     }
     .gate-login-btn {
-      min-height: 84px;
-      font-size: 24px;
-      border-radius: 22px;
+      min-height: 96px;
+      font-size: 26px;
+      border-radius: 24px;
     }
     .gate-login-btn .gh-icon {
-      width: 36px;
-      height: 36px;
+      width: 40px;
+      height: 40px;
+    }
+    .chrome {
+      min-height: 96px;
+      padding-left: 24px;
+    }
+    .brand-icon {
+      width: 76px;
+      height: 76px;
     }
     .dock input {
-      height: 64px;
-      font-size: 18px;
+      height: 70px;
+      font-size: 19px;
     }
     .send {
-      min-width: 120px;
-      height: 64px;
-      font-size: 16px;
+      min-width: 140px;
+      height: 70px;
+      font-size: 17px;
     }
     .theme-key, .proj-key {
-      min-height: 48px;
-      font-size: 13px;
+      min-height: 52px;
+      font-size: 14px;
     }
   }
   @media (max-width: 820px) {
