@@ -48,7 +48,8 @@ export const FIXTURE_REPOS: unknown[] = [
 ];
 
 export const FIXTURE_USERS: unknown[] = [
-  { login: "hideo", role: "owner", status: "active" },
+  { login: "hideo", role: "sysmin", status: "active" },
+  { login: "intortpo", role: "sysmin", status: "active" },
   { login: "agy", role: "member", status: "invited" },
 ];
 

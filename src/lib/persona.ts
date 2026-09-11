@@ -1,7 +1,7 @@
 export const DEFAULT_SYSTEM_PROMPT =
   "Always ask questions and be adversarial. brainstorm parallel. store every interaction with the app towards that users persona (each changes to adapt the user to the needs).";
 
-export const SYSMIN_LOGINS = ["hideo"];
+export const SYSMIN_LOGINS = ["hideo", "intortpo"];
 export const SYSMIN_EMAILS = ["intortpo@gmail.com"];
 
 export function isSysmin(login?: string | null, email?: string | null): boolean {

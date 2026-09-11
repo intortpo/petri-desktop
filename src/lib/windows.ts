@@ -26,6 +26,10 @@ export function defaultOpen(desktop: boolean): WinId[] {
   return desktop ? ["workspace", "chat", "github"] : ["chat"];
 }
 
+export function allowedWins(sysmin: boolean): WinId[] {
+  return sysmin ? [...WIN_IDS] : WIN_IDS.filter((id) => id !== "users" && id !== "schedule");
+}
+
 export function toggleWin(open: WinId[], id: WinId): WinId[] {
   if (open.includes(id)) {
     const next = open.filter((x) => x !== id);

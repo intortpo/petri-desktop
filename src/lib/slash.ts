@@ -49,6 +49,7 @@ export const SHIPPED_COMMANDS: SlashItem[] = [
   { cmd: "/project", hint: "List or switch project", kind: "command" },
   { cmd: "/export", hint: "Export thread", kind: "command" },
   { cmd: "/open-agy", hint: "Open in agy", kind: "command" },
+  { cmd: "/apps", hint: "Open all accessible apps", kind: "command" },
   { cmd: "/modules", hint: "List modules", kind: "plugin" },
   { cmd: "/theme", hint: "Theme system|light|dark", kind: "command" },
   { cmd: "/theme system", hint: "Follow system theme", kind: "command" },

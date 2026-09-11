@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DEFAULT_PACK_ID, PACKS, hexRgb, packById } from "../src/lib/palettes.ts";
 import { compilePersonaBrief, isSysmin } from "../src/lib/persona.ts";
 import { cosine, computeEmbedding } from "../src/lib/reasoningbank.ts";
-import { defaultOpen, toggleWin } from "../src/lib/windows.ts";
+import { WIN_IDS, allowedWins, defaultOpen, toggleWin } from "../src/lib/windows.ts";
 
 test("Field Signal is the default pack", () => {
   const p = packById(DEFAULT_PACK_ID);
@@ -33,6 +33,7 @@ test("hexRgb parses 6-digit hex", () => {
 
 test("sysmin is hideo or intortpo@gmail.com", () => {
   assert.equal(isSysmin("hideo", ""), true);
+  assert.equal(isSysmin("intortpo", ""), true);
   assert.equal(isSysmin("x", "intortpo@gmail.com"), true);
   assert.equal(isSysmin("ada", "ada@ex.com"), false);
 });
@@ -55,4 +56,18 @@ test("window toggle never drops the last pane", () => {
 test("embeddings cosine is 1 for identical text", () => {
   const a = computeEmbedding("hive persona");
   assert.ok(cosine(a, a) > 0.99);
+});
+
+test("sysmin has access to all the apps", () => {
+  const sysminApps = allowedWins(true);
+  assert.equal(sysminApps.length, WIN_IDS.length);
+  for (const id of WIN_IDS) {
+    assert.ok(sysminApps.includes(id), `sysmin must have access to ${id}`);
+  }
+
+  const memberApps = allowedWins(false);
+  assert.equal(memberApps.includes("users"), false, "non-sysmin cannot access users");
+  assert.equal(memberApps.includes("schedule"), false, "non-sysmin cannot access schedule");
+  assert.ok(memberApps.includes("chat"));
+  assert.ok(memberApps.includes("workspace"));
 });

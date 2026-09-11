@@ -5,6 +5,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import SilkBg from './lib/SilkBg.svelte';
   import petriIcon from './assets/petri-icon.png';
+  import petriLogo from './assets/petri-logo.png';
   import { applyTheme, parseThemeArg, readPref, type ThemePref } from './lib/theme';
   import { DEFAULT_PACK_ID, PACKS } from './lib/palettes';
   import { DEFAULT_SYSTEM_PROMPT, isSysmin } from './lib/persona';
@@ -18,7 +19,7 @@
     getEverosProfile,
     formatEverosRecall,
   } from './lib/everos';
-  import { WIN_IDS, WIN_LABEL, defaultOpen, ensureWin, isDesktop, toggleWin, type WinId } from './lib/windows';
+  import { WIN_IDS, WIN_LABEL, allowedWins, defaultOpen, ensureWin, isDesktop, toggleWin, type WinId } from './lib/windows';
   import { formatMessage } from './lib/format';
   import {
     ctxTitle,
@@ -127,6 +128,8 @@
   let meshPeers: { name: string; address: string; online: boolean }[] = [];
   let audit: { kind: string; detail: string; created_at?: string }[] = [];
   let systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  $: isSysminUser = isSysmin(session?.login, session?.email);
+  $: visibleWinIds = allowedWins(isSysminUser);
   let branchThreadId = "";
   let branchMessages: any[] = [];
   let workspaceTree: { name: string; path: string; kind: string }[] = [];
@@ -251,8 +254,14 @@
   async function refreshUsers() {
     try {
       const me = await githubJson("/user");
-      const rec = me && typeof me === "object" ? (me as { login?: string }) : {};
-      const rows = rec.login ? [{ login: rec.login, role: "owner", status: "active" }] : [];
+      const rec = me && typeof me === "object" ? (me as { login?: string; email?: string }) : {};
+      const rows = rec.login
+        ? [{
+            login: rec.login,
+            role: isSysmin(rec.login, rec.email) ? "sysmin" : "member",
+            status: "active",
+          }]
+        : [];
       userResult = listUsers(rows);
       if (userResult.ok && userResult.items.length) return;
     } catch {}
@@ -407,6 +416,31 @@
     } catch {}
   }
 
+  async function handleLoginClick() {
+    gateNotice = "";
+    try {
+      const pat = await invoke<string>("get_github_pat");
+      if (pat?.trim()) {
+        const msg = await invoke<string>("verify_github_pat", { pat: pat.trim() });
+        const login = (msg.match(/as\s+(\S+)/i) || [])[1] || "user";
+        session = { login, email: "" };
+        await invoke("save_github_session", { login, email: "" }).catch(() => {});
+        await loadModules();
+        await handleCommand("/new");
+        return;
+      }
+    } catch {}
+    await startGithubDevice();
+  }
+
+  function handleGatePaste(e: ClipboardEvent) {
+    const text = e.clipboardData?.getData("text")?.trim();
+    if (text && (text.startsWith("ghp_") || text.startsWith("github_pat_") || text.length >= 35)) {
+      patDraft = text;
+      loginWithPat();
+    }
+  }
+
   async function loginWithPat() {
     gateNotice = "";
     try {
@@ -426,7 +460,18 @@
   async function startGithubDevice() {
     gateNotice = "";
     try {
-      deviceLogin = await invoke("github_device_start");
+      deviceLogin = await invoke<{
+        device_code: string;
+        user_code: string;
+        verification_uri: string;
+      }>("github_device_start");
+      if (deviceLogin?.verification_uri) {
+        try {
+          await invoke("plugin:opener|open_url", { url: deviceLogin.verification_uri });
+        } catch {
+          window.open(deviceLogin.verification_uri, "_blank");
+        }
+      }
     } catch (e) {
       gateNotice = String(e);
     }
@@ -437,7 +482,14 @@
     themeResolved = applyTheme(themePref, id);
   }
 
+  function openAllApps() {
+    if (isSysminUser) {
+      openWins = [...WIN_IDS];
+    }
+  }
+
   function toggleWindow(id: WinId) {
+    if (!visibleWinIds.includes(id)) return;
     openWins = toggleWin(openWins, id);
     if (id === "repos" as never) openView("repos");
     if (id === "github") openView("repos");
@@ -953,11 +1005,23 @@
       }
     } else if (PAGE_TO_WIN[cmd]) {
       const id = PAGE_TO_WIN[cmd] as WinId;
+      if (!visibleWinIds.includes(id)) {
+        system(`Access restricted: ${id} requires sysmin privileges.`);
+        return;
+      }
       openWins = ensureWin(openWins, id);
       if (id === "github") await openView("repos");
       else if (id === "users") await openView("users");
       else if (id === "schedule") await openView("schedule");
       else if (id === "workspace") await loadTree();
+    } else if (cmd === "/apps") {
+      if (isSysminUser) {
+        openWins = [...WIN_IDS];
+        system(`Opened all apps (${WIN_IDS.length}): ${WIN_IDS.map((w) => WIN_LABEL[w]).join(", ")}`);
+      } else {
+        openWins = [...visibleWinIds];
+        system(`Opened member apps: ${openWins.map((w) => WIN_LABEL[w]).join(", ")}`);
+      }
     } else if (moduleCommands[cmd] || moduleCommands[cmd.split(" ")[0]]) {
       const key = moduleCommands[cmd] ? cmd : cmd.split(" ")[0];
       system(`Module ${moduleCommands[key]} handled ${cmd} (no app rebuild).`);
@@ -1228,19 +1292,34 @@
 <SilkBg />
 
 {#if !session}
-<div class="gate">
+<div class="gate" on:paste={handleGatePaste}>
   <div class="glass gate-card">
-    <img class="brand-icon" src={petriIcon} alt="" width="72" height="72" />
-    <strong class="brand-name">HIVE</strong>
-    <em class="brand-by">by petri</em>
-    <p>Sign in with GitHub to enter.</p>
-    <button type="button" class="send" on:click={startGithubDevice}>Continue with GitHub</button>
+    <div class="gate-card-bg" aria-hidden="true">
+      <img src={petriLogo} alt="" />
+    </div>
+
+    <img class="gate-hive-hero" src={petriIcon} alt="HiVE" width="190" height="190" />
+
+    <button type="button" class="gate-login-btn" on:click={handleLoginClick} aria-label="Login">
+      <svg class="gh-icon" viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+      </svg>
+      <span>Login</span>
+    </button>
+
     {#if deviceLogin}
-      <p class="empty">Open {deviceLogin.verification_uri} and enter {deviceLogin.user_code}</p>
+      <div class="device-code-chip" title="GitHub Device Code">{deviceLogin.user_code}</div>
     {/if}
-    <input bind:value={patDraft} placeholder="or paste a GitHub PAT" aria-label="GitHub PAT" />
-    <button type="button" class="key" on:click={loginWithPat}>Use PAT</button>
-    {#if gateNotice}<p class="empty">{gateNotice}</p>{/if}
+    {#if gateNotice}
+      <p class="empty gate-err">{gateNotice}</p>
+      <input
+        class="gate-pat-fallback"
+        bind:value={patDraft}
+        on:keydown={(e) => e.key === 'Enter' && loginWithPat()}
+        placeholder="Paste PAT and press Enter"
+        aria-label="GitHub PAT"
+      />
+    {/if}
   </div>
 </div>
 {:else}
@@ -1350,9 +1429,23 @@
     </div>
   </header>
   <nav class="views" aria-label="Windows">
-    {#each WIN_IDS as id}
-      <button type="button" class:here={openWins.includes(id)} on:click={() => toggleWindow(id)}>{WIN_LABEL[id]}</button>
+    {#each visibleWinIds as id}
+      <button
+        type="button"
+        class:here={openWins.includes(id)}
+        on:click={() => toggleWindow(id)}
+        title={WIN_LABEL[id]}
+      >{WIN_LABEL[id]}</button>
     {/each}
+    {#if isSysminUser}
+      <button
+        type="button"
+        class="all-apps-toggle"
+        class:here={WIN_IDS.every((id) => openWins.includes(id))}
+        on:click={openAllApps}
+        title="Open all apps"
+      >All apps</button>
+    {/if}
   </nav>
 
   <main class="desk">
@@ -1451,7 +1544,7 @@
             </li>
           {/each}
         </ul>
-        {#if isSysmin(session?.login, session?.email)}
+        {#if isSysminUser}
           <p class="tag">System prompt</p>
           <textarea class="prompt-box" bind:value={systemPrompt} rows="5"></textarea>
         {/if}
@@ -1462,7 +1555,7 @@
         <h1>Profile</h1>
         <p><strong>{session?.login}</strong></p>
         <p class="tag">{session?.email || "github"}</p>
-        <p class="tag">{isSysmin(session?.login, session?.email) ? "sysmin" : "member"}</p>
+        <p class="tag">{isSysminUser ? "sysmin" : "member"}</p>
       </section>
     {/if}
     {#if openWins.includes("branch")}
@@ -1635,7 +1728,7 @@
     </div>
   {/if}
 
-  {#if isSysmin(session?.login, session?.email)}
+  {#if isSysminUser}
     <button type="button" class="sysmin-hex" aria-label="Mesh overview" on:click={openSysmin}></button>
     {#if meshOpen}
       <aside class="glass mesh-pop">
@@ -2221,30 +2314,145 @@
     position: relative;
     z-index: 2;
     min-height: 100dvh;
-    display: grid;
-    place-items: center;
-    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(24px, 5vw, 64px);
   }
   .gate-card {
+    position: relative;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
-    padding: 36px 40px;
-    border-radius: 20px;
-    max-width: 420px;
-    text-align: center;
-    background: #0a0c10;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  .gate-card input {
+    justify-content: center;
+    gap: 32px;
+    padding: clamp(52px, 8vw, 88px) clamp(40px, 8vw, 96px);
+    border-radius: 32px;
+    max-width: 540px;
     width: 100%;
-    height: 44px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    text-align: center;
+    background: rgba(10, 12, 16, 0.94) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 32px 80px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(32px);
+    -webkit-backdrop-filter: blur(32px);
+  }
+  .gate-card-bg {
+    position: absolute;
+    inset: -30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 0;
+  }
+  .gate-card-bg img {
+    width: 130%;
+    height: 130%;
+    object-fit: contain;
+    opacity: 0.09;
+    filter: blur(1.5px);
+    user-select: none;
+    pointer-events: none;
+  }
+  .gate-hive-hero {
+    position: relative;
+    z-index: 1;
+    width: clamp(160px, 24vw, 220px);
+    height: clamp(160px, 24vw, 220px);
+    object-fit: contain;
+    filter: drop-shadow(0 16px 36px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 1px rgba(255, 255, 255, 0.4));
+    user-select: none;
+    pointer-events: none;
+    transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .gate-card:hover .gate-hive-hero {
+    transform: scale(1.02);
+  }
+  .gate-login-btn {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    width: 100%;
+    min-height: 76px;
+    padding: 0 40px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(28, 34, 46, 0.95) 0%, rgba(12, 15, 20, 0.98) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 -1px 0 rgba(0, 0, 0, 0.6), 0 16px 36px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    color: #f8fafc;
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1),
+                background 160ms cubic-bezier(0.16, 1, 0.3, 1),
+                border-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+                box-shadow 160ms cubic-bezier(0.16, 1, 0.3, 1);
+    user-select: none;
+  }
+  .gate-login-btn:hover {
+    background: linear-gradient(180deg, rgba(38, 46, 62, 0.96) 0%, rgba(16, 20, 28, 0.98) 100%);
+    border-color: rgba(255, 255, 255, 0.32);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -1px 0 rgba(0, 0, 0, 0.7), 0 20px 48px rgba(0, 0, 0, 0.85);
+  }
+  .gate-login-btn:active {
+    transform: translateY(2px) scale(0.988);
+    background: linear-gradient(180deg, rgba(10, 12, 16, 0.99) 0%, rgba(20, 24, 34, 0.99) 100%);
+    box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.9), 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+  .gate-login-btn .gh-icon {
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+  }
+  .device-code-chip {
+    position: relative;
+    z-index: 1;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    color: #f1f5f9;
+    padding: 16px 32px;
+    border-radius: 16px;
+    background: #080a0e;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+  }
+  .gate-err {
+    position: relative;
+    z-index: 1;
+    color: #f87171;
+    font-size: 14px;
+    margin: 0;
+  }
+  .gate-pat-fallback {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 48px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
     background: #090a0d;
     color: var(--ink);
-    padding: 0 12px;
+    padding: 0 16px;
+    font-size: 15px;
+    text-align: center;
+  }
+  .all-apps-toggle {
+    margin-left: auto;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.8;
   }
   .prompt-box {
     width: 100%;
@@ -2291,6 +2499,38 @@
   .lcd::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--lcd-ink) 22%, transparent); border-radius: 99px; }
   .tree::-webkit-scrollbar-thumb { background: var(--hair); border-radius: 99px; }
 
+  @media (pointer: coarse), (max-width: 1024px) {
+    .gate-card {
+      max-width: 92vw;
+      padding: clamp(48px, 10vw, 96px) clamp(24px, 8vw, 64px);
+    }
+    .gate-hive-hero {
+      width: clamp(180px, 30vw, 240px);
+      height: clamp(180px, 30vw, 240px);
+    }
+    .gate-login-btn {
+      min-height: 84px;
+      font-size: 24px;
+      border-radius: 22px;
+    }
+    .gate-login-btn .gh-icon {
+      width: 36px;
+      height: 36px;
+    }
+    .dock input {
+      height: 64px;
+      font-size: 18px;
+    }
+    .send {
+      min-width: 120px;
+      height: 64px;
+      font-size: 16px;
+    }
+    .theme-key, .proj-key {
+      min-height: 48px;
+      font-size: 13px;
+    }
+  }
   @media (max-width: 820px) {
     .chrome { padding-left: 20px; gap: 12px; min-height: 64px; }
     .lead { gap: 16px; }
