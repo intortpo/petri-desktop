@@ -1671,10 +1671,10 @@
     min-height: 72px;
     padding: 0 8px 0 40px;
     gap: 24px;
-    border-bottom: 1px solid var(--hair);
-    background: var(--glass);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #080a0d;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     user-select: none;
   }
   .lead {
@@ -1747,10 +1747,10 @@
     max-height: 320px;
     overflow: auto;
     padding: 10px;
-    border: 1px solid var(--hair);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
-    background: var(--key);
-    box-shadow: 0 16px 40px color-mix(in srgb, var(--void) 18%, transparent);
+    background: #090b0e;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
   }
   .proj-menu button {
     display: flex;
@@ -1871,7 +1871,8 @@
     gap: 12px 16px;
     padding: 16px 18px;
     border-radius: 12px;
-    background: color-mix(in srgb, var(--key) 70%, transparent);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #0d1015;
   }
   .cards a {
     color: inherit;
@@ -1897,9 +1898,9 @@
     min-width: 160px;
     height: 48px;
     border-radius: 12px;
-    border: 1px solid var(--hair);
-    background: color-mix(in srgb, var(--key) 88%, transparent);
-    color: var(--ink);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #090a0d;
+    color: #f1f5f9;
     padding: 0 16px;
     font-size: 14px;
   }
@@ -1954,7 +1955,8 @@
     width: 240px;
     flex-shrink: 0;
     border-radius: 16px;
-    background: color-mix(in srgb, var(--key) 70%, transparent);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #0a0c10;
     padding: 20px 16px;
     overflow: auto;
   }
@@ -1983,7 +1985,8 @@
   .lcd {
     flex: 1;
     overflow: auto;
-    background: var(--lcd-bg);
+    background: #07080b;
+    border: 1px solid rgba(255, 255, 255, 0.06);
     color: var(--lcd-ink);
     border-radius: 20px;
     padding: 36px 40px 48px;
@@ -2007,13 +2010,15 @@
     margin-bottom: 8px;
   }
   .pad, .fork {
-    background: var(--lcd-pad);
+    background: #0e1117;
+    border: 1px solid rgba(255, 255, 255, 0.05);
     padding: 16px 20px;
     border-radius: 12px;
   }
   .bubble.user .pad {
     white-space: pre-wrap;
-    background: var(--lcd-user);
+    background: #141820;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--lcd-user-ink);
   }
   .md :global(.md-h) {
@@ -2041,14 +2046,16 @@
   .md :global(.md-pre) {
     margin: 12px 0;
     padding: 14px 16px;
-    background: color-mix(in srgb, var(--void) 45%, transparent);
+    background: #090b0e;
+    border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 10px;
     overflow-x: auto;
     white-space: pre-wrap;
   }
   .md :global(.md-code) {
     font-size: 13px;
-    background: color-mix(in srgb, var(--void) 35%, transparent);
+    background: #0d1015;
+    border: 1px solid rgba(255, 255, 255, 0.06);
     padding: 2px 6px;
     border-radius: 5px;
   }
@@ -2056,7 +2063,8 @@
   .md :global(em) { font-style: italic; }
   .md :global(strong) { font-weight: 650; }
   .bubble.system .pad {
-    background: color-mix(in srgb, var(--lcd-ink) 8%, var(--lcd-pad));
+    background: #11141c;
+    border: 1px solid rgba(255, 255, 255, 0.06);
   }
   .fork-row { display: flex; gap: 12px; align-items: flex-start; }
   .fork-main { flex: 1; text-align: left; background: none; border: 0; color: inherit; }
@@ -2087,7 +2095,8 @@
     flex-shrink: 0;
     z-index: 4;
     padding: 16px var(--gutter) calc(28px + env(safe-area-inset-bottom, 0px));
-    background: color-mix(in srgb, var(--shell) 82%, transparent);
+    background: #080a0d !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
   .slash-menu {
     position: absolute;
@@ -2097,10 +2106,10 @@
     max-height: 280px;
     overflow: auto;
     padding: 8px;
-    border: 1px solid var(--hair);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
-    background: var(--key);
-    box-shadow: 0 16px 40px color-mix(in srgb, var(--void) 22%, transparent);
+    background: #090b0e;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
   }
   .slash-menu button {
     display: flex;
@@ -2130,8 +2139,8 @@
     flex: 1;
     height: 56px;
     border-radius: 12px;
-    border: 1px solid var(--hair);
-    background: color-mix(in srgb, var(--key) 88%, transparent);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: #090a0d;
     color: var(--ink);
     padding: 0 20px;
     font-size: 16px;
@@ -2157,11 +2166,11 @@
     min-width: 220px;
     max-width: 300px;
     padding: 8px;
-    border: 1px solid var(--hair);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
-    background: var(--key);
+    background: #090b0e;
     color: var(--ink);
-    box-shadow: 0 16px 40px color-mix(in srgb, var(--void) 22%, transparent);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
   }
   .ctx-menu header {
     font-size: 11px;
@@ -2204,6 +2213,8 @@
     flex-direction: column;
     border-radius: 16px;
     overflow: auto;
+    background: #0a0c10;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   .chat-pane { min-width: 360px; }
   .gate {
@@ -2223,13 +2234,15 @@
     border-radius: 20px;
     max-width: 420px;
     text-align: center;
+    background: #0a0c10;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   .gate-card input {
     width: 100%;
     height: 44px;
     border-radius: 10px;
-    border: 1px solid var(--hair);
-    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: #090a0d;
     color: var(--ink);
     padding: 0 12px;
   }
@@ -2237,8 +2250,8 @@
     width: 100%;
     min-height: 120px;
     border-radius: 12px;
-    border: 1px solid var(--hair);
-    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: #090a0d;
     color: var(--ink);
     padding: 12px;
   }
@@ -2265,6 +2278,8 @@
     overflow: auto;
     padding: 16px;
     border-radius: 16px;
+    background: #090b0e;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   .ctx-sep {
     height: 1px;

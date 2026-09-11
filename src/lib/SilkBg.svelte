@@ -12,9 +12,9 @@
   }
 
   function colors(): SilkColors {
-    const dark = document.documentElement.dataset.theme === "dark";
-    const field = hexRgb(readCss(dark ? "--void" : "--ice", dark ? "#000000" : "#f3f0ea"));
-    const wire = hexRgb(readCss("--ash", "#b7b7b7"));
+    const dark = document.documentElement.dataset.theme !== "light";
+    const field = hexRgb(readCss("--shell", "#06070a"));
+    const wire = hexRgb(readCss("--wire", dark ? "#141720" : "#202430"));
     return { field, wire };
   }
 
