@@ -178,6 +178,20 @@ fn save_github_pat(state: State<'_, AppState>, pat: String) -> Result<(), String
 
 #[tauri::command]
 fn get_github_pat(state: State<'_, AppState>) -> Result<String, String> {
+    if let Ok(s) = std::fs::read_to_string(state.paths.pat_file()) {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+    if let Ok(out) = Command::new("gh").args(["auth", "token"]).output() {
+        if out.status.success() {
+            let tok = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !tok.is_empty() {
+                return Ok(tok);
+            }
+        }
+    }
     std::fs::read_to_string(state.paths.pat_file()).map_err(|e| e.to_string())
 }
 

@@ -423,10 +423,46 @@
     }
   }
 
+  async function handleLoginClick() {
+    gateNotice = "";
+    try {
+      const pat = await invoke<string>("get_github_pat");
+      if (pat?.trim()) {
+        const msg = await invoke<string>("verify_github_pat", { pat: pat.trim() });
+        const login = (msg.match(/as\s+(\S+)/i) || [])[1] || "user";
+        session = { login, email: "" };
+        await invoke("save_github_session", { login, email: "" }).catch(() => {});
+        await loadModules();
+        await handleCommand("/new");
+        return;
+      }
+    } catch {}
+    await startGithubDevice();
+  }
+
+  function handleGatePaste(e: ClipboardEvent) {
+    const text = e.clipboardData?.getData("text")?.trim();
+    if (text && (text.startsWith("ghp_") || text.startsWith("github_pat_") || text.length >= 35)) {
+      patDraft = text;
+      loginWithPat();
+    }
+  }
+
   async function startGithubDevice() {
     gateNotice = "";
     try {
-      deviceLogin = await invoke("github_device_start");
+      deviceLogin = await invoke<{
+        device_code: string;
+        user_code: string;
+        verification_uri: string;
+      }>("github_device_start");
+      if (deviceLogin?.verification_uri) {
+        try {
+          await invoke("plugin:opener|open_url", { url: deviceLogin.verification_uri });
+        } catch {
+          window.open(deviceLogin.verification_uri, "_blank");
+        }
+      }
     } catch (e) {
       gateNotice = String(e);
     }
@@ -1228,19 +1264,17 @@
 <SilkBg />
 
 {#if !session}
-<div class="gate">
+<div class="gate" on:paste={handleGatePaste}>
   <div class="glass gate-card">
-    <img class="brand-icon" src={petriIcon} alt="" width="72" height="72" />
-    <strong class="brand-name">HIVE</strong>
-    <em class="brand-by">by petri</em>
-    <p>Sign in with GitHub to enter.</p>
-    <button type="button" class="send" on:click={startGithubDevice}>Continue with GitHub</button>
+    <button type="button" class="gate-login-btn" on:click={handleLoginClick} aria-label="Login">
+      <svg class="gh-icon" viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+      </svg>
+      <span>Login</span>
+    </button>
     {#if deviceLogin}
-      <p class="empty">Open {deviceLogin.verification_uri} and enter {deviceLogin.user_code}</p>
+      <div class="device-code-chip" title="GitHub Device Code">{deviceLogin.user_code}</div>
     {/if}
-    <input bind:value={patDraft} placeholder="or paste a GitHub PAT" aria-label="GitHub PAT" />
-    <button type="button" class="key" on:click={loginWithPat}>Use PAT</button>
-    {#if gateNotice}<p class="empty">{gateNotice}</p>{/if}
   </div>
 </div>
 {:else}
@@ -2221,30 +2255,76 @@
     position: relative;
     z-index: 2;
     min-height: 100dvh;
-    display: grid;
-    place-items: center;
-    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(24px, 5vw, 64px);
   }
   .gate-card {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
-    padding: 36px 40px;
-    border-radius: 20px;
-    max-width: 420px;
-    text-align: center;
-    background: #0a0c10;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  .gate-card input {
+    justify-content: center;
+    gap: 24px;
+    padding: clamp(48px, 8vw, 84px) clamp(40px, 8vw, 96px);
+    border-radius: 32px;
+    max-width: 580px;
     width: 100%;
-    height: 44px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: #090a0d;
-    color: var(--ink);
-    padding: 0 12px;
+    text-align: center;
+    background: #0a0c10 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 32px 80px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(32px);
+    -webkit-backdrop-filter: blur(32px);
+  }
+  .gate-login-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    width: 100%;
+    min-height: 80px;
+    padding: 0 40px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(32, 38, 50, 0.98) 0%, rgba(14, 17, 23, 0.99) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.6), 0 16px 36px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    color: #f8fafc;
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: transform 120ms var(--ease-out), background 160ms var(--ease-out), border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+    user-select: none;
+  }
+  .gate-login-btn:hover {
+    background: linear-gradient(180deg, rgba(46, 54, 70, 0.98) 0%, rgba(20, 24, 34, 0.99) 100%);
+    border-color: rgba(255, 255, 255, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), inset 0 -1px 0 rgba(0, 0, 0, 0.7), 0 20px 48px rgba(0, 0, 0, 0.85);
+  }
+  .gate-login-btn:active {
+    transform: translateY(2px) scale(0.985);
+    background: linear-gradient(180deg, rgba(10, 12, 16, 0.99) 0%, rgba(24, 28, 38, 0.99) 100%);
+    box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.9), 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+  .gate-login-btn .gh-icon {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+  }
+  .device-code-chip {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    color: #f1f5f9;
+    padding: 16px 32px;
+    border-radius: 16px;
+    background: #080a0e;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
   }
   .prompt-box {
     width: 100%;
@@ -2291,6 +2371,34 @@
   .lcd::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--lcd-ink) 22%, transparent); border-radius: 99px; }
   .tree::-webkit-scrollbar-thumb { background: var(--hair); border-radius: 99px; }
 
+  @media (pointer: coarse), (max-width: 1024px) {
+    .gate-card {
+      max-width: 92vw;
+      padding: clamp(48px, 10vw, 96px) clamp(24px, 8vw, 64px);
+    }
+    .gate-login-btn {
+      min-height: 84px;
+      font-size: 24px;
+      border-radius: 22px;
+    }
+    .gate-login-btn .gh-icon {
+      width: 36px;
+      height: 36px;
+    }
+    .dock input {
+      height: 64px;
+      font-size: 18px;
+    }
+    .send {
+      min-width: 120px;
+      height: 64px;
+      font-size: 16px;
+    }
+    .theme-key, .proj-key {
+      min-height: 48px;
+      font-size: 13px;
+    }
+  }
   @media (max-width: 820px) {
     .chrome { padding-left: 20px; gap: 12px; min-height: 64px; }
     .lead { gap: 16px; }

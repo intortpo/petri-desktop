@@ -2,11 +2,6 @@
 @source "../index.html";
 @source "./**/*.{svelte,ts,js}";
 
-@property --edge-a {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
-}
 
 :root {
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -98,45 +93,39 @@ button, input {
 
 button, .key, .send, .theme-key {
   position: relative;
-  isolation: isolate;
-  overflow: visible;
-  transition: transform 120ms var(--ease-out), background-color 160ms var(--ease-out), color 160ms var(--ease-out);
+  cursor: pointer;
+  background: linear-gradient(180deg, rgba(28, 32, 42, 0.96) 0%, rgba(14, 16, 22, 0.98) 100%);
+  color: #f1f5f9;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.45), 0 4px 14px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: transform 100ms var(--ease-out), background 140ms var(--ease-out), border-color 140ms var(--ease-out), box-shadow 140ms var(--ease-out);
+  user-select: none;
 }
 
-button::after, .key::after, .send::after, .theme-key::after {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  pointer-events: none;
-  opacity: 0;
-  z-index: 2;
-  background: conic-gradient(from var(--edge-a), transparent 0 62%, var(--ink) 78%, transparent 92%);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  transition: opacity 160ms var(--ease-out);
+button:hover, .key:hover, .send:hover, .theme-key:hover {
+  background: linear-gradient(180deg, rgba(38, 44, 58, 0.97) 0%, rgba(20, 24, 32, 0.98) 100%);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.7);
 }
 
-button:hover::after, button:focus-visible::after,
-.key:hover::after, .send:hover::after, .theme-key:hover::after {
-  opacity: 0.9;
-  animation: edge-spin 1.15s linear infinite;
+button:active:not(:disabled), .key:active:not(:disabled), .send:active:not(:disabled), .theme-key:active:not(:disabled) {
+  transform: translateY(1.5px) scale(0.985);
+  background: linear-gradient(180deg, rgba(12, 14, 18, 0.99) 0%, rgba(22, 26, 34, 0.99) 100%);
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
-button:active:not(:disabled) {
-  transform: scale(0.97);
+button:focus-visible, .key:focus-visible, .send:focus-visible, .theme-key:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.35);
+  outline-offset: 2px;
 }
 
-@keyframes edge-spin {
-  to { --edge-a: 360deg; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  button:active:not(:disabled) { transform: none; }
-  button::after, .key::after, .send::after, .theme-key::after {
-    animation: none !important;
-  }
+button:disabled, .key:disabled, .send:disabled, .theme-key:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
