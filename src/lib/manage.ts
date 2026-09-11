@@ -4,6 +4,9 @@ export type RepoRecord = {
   name: string;
   visibility: string;
   html_url: string;
+  branch?: string;
+  worktree?: string;
+  commit?: string;
 };
 
 export type UserRecord = {
@@ -30,11 +33,17 @@ export const FIXTURE_REPOS: unknown[] = [
     name: "hideo",
     visibility: "private",
     html_url: "https://github.com/hideo/hideo",
+    branch: "main",
+    worktree: "/home/hideo/Documents/GitHub/hideo",
+    commit: "0bf09928",
   },
   {
     name: "deepagents-app",
     private: false,
     html_url: "https://github.com/hideo/deepagents-app",
+    branch: "main",
+    worktree: "/home/hideo/Documents/GitHub/hideo/deepagents-app",
+    commit: "head",
   },
 ];
 
@@ -79,11 +88,18 @@ export function listRepos(input: unknown): ListResult<RepoRecord> {
     if (!rec) continue;
     const name = str(rec.name) || str(rec.full_name);
     if (!name) continue;
-    items.push({
+    const branch = str(rec.branch) || str(rec.default_branch);
+    const worktree = str(rec.worktree) || str(rec.working_tree);
+    const commit = str(rec.commit) || str(rec.sha) || str(rec.head);
+    const item: RepoRecord = {
       name,
       visibility: visibilityOf(rec),
       html_url: str(rec.html_url) || str(rec.url),
-    });
+    };
+    if (branch) item.branch = branch;
+    if (worktree) item.worktree = worktree;
+    if (commit) item.commit = commit;
+    items.push(item);
   }
   return ok(items);
 }

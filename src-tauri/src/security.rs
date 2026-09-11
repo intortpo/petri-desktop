@@ -385,6 +385,22 @@ mod tests {
     }
 
     #[test]
+    fn architect_fence_denies_write_tools() {
+        assert!(mode_denies_write_tools("architect"));
+        let payload = prepare_turn_payload("architect", "pack", "design the module");
+        assert!(payload.contains("[MODE FENCE: ARCHITECT]"));
+        assert!(payload.contains("DO NOT use shell tools or write code") || payload.contains("read-only"));
+        assert!(payload.contains("Denied: write") || payload.contains("Write tools are not granted"));
+        let argv = agy_argv(AgySpawnOpts {
+            conversation_id: None,
+            mode: "architect",
+            prompt: &payload,
+        });
+        assert!(argv.contains(&"--sandbox".to_string()));
+        assert!(argv.contains(&"plan".to_string()));
+    }
+
+    #[test]
     fn pat_file_is_owner_only() {
         let dir = temp_dir();
         let path = dir.join("github.pat");

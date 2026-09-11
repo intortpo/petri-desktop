@@ -36,6 +36,28 @@ test("sample repo list exposes name, visibility, and html_url", () => {
   assert.equal(beta.html_url, "https://github.com/ex/beta");
 });
 
+test("repo listing passes through branch, worktree, and commit when present", () => {
+  const listed = listRepos([
+    {
+      name: "alpha",
+      visibility: "public",
+      html_url: "https://github.com/ex/alpha",
+      branch: "main",
+      worktree: "/wt/alpha",
+      commit: "abc1234",
+    },
+    { name: "beta", private: true, html_url: "https://github.com/ex/beta" },
+  ]);
+  const alpha = listed.items.find((r) => r.name === "alpha")!;
+  const beta = listed.items.find((r) => r.name === "beta")!;
+  assert.equal(alpha.branch, "main");
+  assert.equal(alpha.worktree, "/wt/alpha");
+  assert.equal(alpha.commit, "abc1234");
+  assert.equal(beta.branch, undefined);
+  assert.equal(beta.worktree, undefined);
+  assert.equal(beta.commit, undefined);
+});
+
 test("sample user list exposes login, role, and status", () => {
   const raw = [
     { login: "ada", role: "owner", status: "active" },
@@ -89,8 +111,14 @@ test("HiVE chrome ships window strip and GitHub management transforms", () => {
   assert.match(appSource, /HIVE/);
   assert.match(appSource, /by petri/);
   assert.match(appSource, /GitHub repos/);
+  assert.match(appSource, /Scheduled tasks/);
   assert.match(appSource, /from ['"]\.\/lib\/manage['"]/);
   assert.match(appSource, /listRepos/);
   assert.match(appSource, /listUsers/);
+  assert.match(appSource, /createSchedule/);
+  assert.match(appSource, /cancelSchedule/);
   assert.match(appSource, /WIN_IDS|toggleWindow/);
+  assert.match(appSource, /repo\.branch/);
+  assert.match(appSource, /repo\.worktree/);
+  assert.match(appSource, /repo\.commit/);
 });

@@ -1,3 +1,5 @@
+import { HEX_SDF_GLSL } from "./hex-lattice";
+
 const VERT = `
 attribute vec2 a_pos;
 void main() {
@@ -5,35 +7,28 @@ void main() {
 }
 `;
 
-const FRAG = `
+export const FIELD_FRAG = `
 precision highp float;
 uniform vec2 u_res;
 uniform float u_time;
 uniform vec3 u_field;
 uniform vec3 u_wire;
-
-float hexEdge(vec2 p) {
-  const vec2 s = vec2(1.0, 1.73205080757);
-  vec2 a = mod(p, s) - 0.5 * s;
-  vec2 b = mod(p + 0.5 * s, s) - 0.5 * s;
-  vec2 g = dot(a, a) < dot(b, b) ? a : b;
-  vec2 ag = abs(g);
-  float d = max(ag.x * 0.866025 + ag.y * 0.5, ag.y);
-  return abs(d - 0.46);
-}
-
+${HEX_SDF_GLSL}
 void main() {
   vec2 uv = gl_FragCoord.xy / u_res.xy;
   float aspect = u_res.x / max(u_res.y, 1.0);
-  vec2 p = uv * vec2(aspect, 1.0);
-  float t = u_time * 0.012;
-  vec2 q = p * 14.0 + vec2(t, t * 0.35);
-  float e = hexEdge(q);
-  float line = 1.0 - smoothstep(0.0, 0.028, e);
+  vec2 p = (uv * 2.0 - 1.0) * vec2(aspect, 1.0);
+  float t = u_time * 0.018;
+  p += vec2(t * 0.15, t * 0.07);
+  float size = 0.09;
+  float e = hexEdgeDistance(p, size);
+  float line = 1.0 - smoothstep(0.0, 0.0035, e);
   vec3 col = mix(u_field, u_wire, line * 0.055);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
+
+const FRAG = FIELD_FRAG;
 
 function compile(gl: WebGLRenderingContext, type: number, src: string) {
   const sh = gl.createShader(type)!;

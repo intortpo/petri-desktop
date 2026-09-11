@@ -9,6 +9,15 @@
   import { DEFAULT_PACK_ID, PACKS } from './lib/palettes';
   import { DEFAULT_SYSTEM_PROMPT, isSysmin } from './lib/persona';
   import { recallPersona, rememberTurn } from './lib/reasoningbank';
+  import {
+    checkEverosHealth,
+    addEverosTurn,
+    flushEveros,
+    searchEveros,
+    rememberEveros,
+    getEverosProfile,
+    formatEverosRecall,
+  } from './lib/everos';
   import { WIN_IDS, WIN_LABEL, defaultOpen, ensureWin, isDesktop, toggleWin, type WinId } from './lib/windows';
   import { formatMessage } from './lib/format';
   import {
@@ -33,6 +42,19 @@
     type Schedule,
     type UserRecord,
   } from './lib/manage';
+  import {
+    PAGE_TO_WIN,
+    applySlashPick,
+    extraSlashItems,
+    filterSlash,
+    type SlashItem,
+  } from './lib/slash';
+  import {
+    MODEL_CHOICES,
+    VALID_MODES,
+    isValidMode,
+    runDesignCommand,
+  } from './lib/architect';
 
   type MeshThread = {
     id: string;
@@ -88,8 +110,12 @@
   let themeResolved: "light" | "dark" = "light";
   let packId = DEFAULT_PACK_ID;
   let showProjects = false;
+  let showModes = false;
+  let showModels = false;
   let projectList: string[] = [];
   let projRoot: HTMLDivElement | null = null;
+  let modeRoot: HTMLDivElement | null = null;
+  let modelRoot: HTMLDivElement | null = null;
   let view: "chat" | "repos" | "users" | "schedule" = "chat";
   let openWins: WinId[] = defaultOpen(typeof window !== "undefined" ? isDesktop(window.innerWidth) : true);
   let session: { login: string; email: string } | null = null;
@@ -98,6 +124,7 @@
   let deviceLogin: { user_code: string; verification_uri: string } | null = null;
   let meshOpen = false;
   let cores: { id: string; online: boolean }[] = [];
+  let meshPeers: { name: string; address: string; online: boolean }[] = [];
   let audit: { kind: string; detail: string; created_at?: string }[] = [];
   let systemPrompt = DEFAULT_SYSTEM_PROMPT;
   let branchThreadId = "";
@@ -112,6 +139,10 @@
   let schedInterval = "";
   let schedNotice = "";
   let composerEl: HTMLInputElement | null = null;
+  let extraSlash: SlashItem[] = [];
+  let slashIndex = 0;
+  $: slashHits = filterSlash(composerInput, extraSlash);
+  $: if (slashIndex >= slashHits.length) slashIndex = 0;
   let ctxRoot: HTMLDivElement | null = null;
   let ctxMenu: { x: number; y: number; kind: CtxKind; spec: CtxSpec[]; title: string } | null = null;
   let ctxPayload: Record<string, any> = {};
@@ -144,6 +175,32 @@
     currentProject = path;
     showProjects = false;
     if (showTree) await refreshTree();
+  }
+
+  function toggleModes() {
+    showModes = !showModes;
+    showModels = false;
+    showProjects = false;
+  }
+
+  function toggleModels() {
+    showModels = !showModels;
+    showModes = false;
+    showProjects = false;
+  }
+
+  async function selectMode(mode: string) {
+    showModes = false;
+    if (!isValidMode(mode) || mode === currentMode) return;
+    await handleCommand(`/mode ${mode}`);
+  }
+
+  function selectModel(model: string) {
+    showModels = false;
+    const next = String(model || "").trim();
+    if (!next) return;
+    currentModel = next;
+    if (currentThread) currentThread = { ...currentThread, model: next };
   }
 
   function cycleTheme() {
@@ -243,11 +300,15 @@
     const onPtr = (e: PointerEvent) => {
       const t = e.target as Node | null;
       if (showProjects && projRoot && t && !projRoot.contains(t)) showProjects = false;
+      if (showModes && modeRoot && t && !modeRoot.contains(t)) showModes = false;
+      if (showModels && modelRoot && t && !modelRoot.contains(t)) showModels = false;
       if (ctxMenu && ctxRoot && t && !ctxRoot.contains(t)) ctxMenu = null;
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         showProjects = false;
+        showModes = false;
+        showModels = false;
         ctxMenu = null;
       }
     };
@@ -292,6 +353,24 @@
     } catch {
       moduleCommands = {};
     }
+    await refreshSlashExtras();
+  }
+
+  async function refreshSlashExtras() {
+    let skills: string[] = [];
+    let mcp: string[] = [];
+    try {
+      skills = await invoke<string[]>("list_skills", { projectPath: currentProject });
+    } catch {}
+    try {
+      const listed = await invoke<string>("list_mcp", { projectPath: currentProject });
+      mcp = (listed.match(/^- (.+)$/gm) || []).map((line) => line.replace(/^- /, "").trim());
+    } catch {}
+    extraSlash = extraSlashItems({
+      skills,
+      mcp,
+      plugins: Object.keys(moduleCommands),
+    });
   }
 
   async function checkStatus() {
@@ -364,6 +443,7 @@
     if (id === "github") openView("repos");
     if (id === "users") openView("users");
     if (id === "workspace") loadTree();
+    if (id === "schedule") openView("schedule");
   }
 
   async function loadTree() {
@@ -388,6 +468,11 @@
         { id: "phone2", online: false },
         { id: "phone3", online: false },
       ];
+    }
+    try {
+      meshPeers = await invoke("list_mesh_peers");
+    } catch {
+      meshPeers = [];
     }
     try {
       audit = await invoke("list_audit");
@@ -577,7 +662,8 @@
       const lesson = cmd.replace("/remember ", "");
       try {
         await invoke("remember_lesson", { projectPath: currentProject, lesson });
-        system("Lesson remembered.");
+        await rememberEveros(lesson, "petri");
+        system("Lesson remembered (Mesh & EverOS).");
       } catch (e) {
         system(`Error: ${e}`);
       }
@@ -600,6 +686,8 @@
     } else if (cmd.startsWith("/skill ")) {
       const skillName = cmd.replace("/skill ", "");
       system(`Pinned skill: ${skillName} for this turn.`);
+    } else if (cmd === "/plugin") {
+      system("Usage: /plugin install <url>");
     } else if (cmd.startsWith("/plugin install ")) {
       const url = cmd.replace("/plugin install ", "");
       system(`Installing plugin from ${url}...`);
@@ -611,8 +699,7 @@
       }
     } else if (cmd.startsWith("/mode ")) {
       const mode = cmd.replace("/mode ", "");
-      const validModes = ["architect", "code", "debug", "ask", "orchestrator"];
-      if (validModes.includes(mode)) {
+      if (isValidMode(mode)) {
         currentMode = mode;
         if (currentThreadId) {
           try {
@@ -624,7 +711,67 @@
         }
         system(`Switched to mode: ${mode}\nTool fences active.`);
       } else {
-        system(`Unknown mode. Valid modes: ${validModes.join(", ")}`);
+        system(`Unknown mode. Valid modes: ${VALID_MODES.join(", ")}`);
+      }
+    } else if (cmd.startsWith("/rlm ") || cmd === "/rlm") {
+      const task = cmd.replace("/rlm", "").trim() || "idle";
+      try {
+        const h = await invoke<{ id: string; status: string; task: string }>("rlm_spawn", { task });
+        system(`rlm ${h.id.slice(0, 8)} ${h.status} · ${h.task}`);
+      } catch (e) {
+        system(`Error: ${e}`);
+      }
+    } else if (cmd.startsWith("/refine ")) {
+      const rest = cmd.slice(8).trim();
+      const sp = rest.indexOf(" ");
+      const kind = sp > 0 ? rest.slice(0, sp) : "skill";
+      const body = sp > 0 ? rest.slice(sp + 1) : rest;
+      try {
+        const path = await invoke<string>("apply_refine_cmd", {
+          kind,
+          evidence: body.slice(0, 180),
+          body,
+        });
+        system(`refine wrote ${path}`);
+      } catch (e) {
+        system(`Error: ${e}`);
+      }
+    } else if (cmd === "/everos" || cmd === "/everos status") {
+      try {
+        const health = await checkEverosHealth();
+        system(`EverOS Memory Status:\n• Status: ${health.status}\n• Engine: ${health.engine}\n• Storage Root: ${health.storage_root}\n• Memory Count: ${health.memory_count}\n• Capabilities: Markdown-native (${health.capabilities.markdown_native}), FTS (${health.capabilities.fts_search})`);
+      } catch (e) {
+        system(`Error checking EverOS: ${e}`);
+      }
+    } else if (cmd.startsWith("/everos search ")) {
+      const query = cmd.replace("/everos search ", "").trim();
+      try {
+        const hits = await searchEveros(query, 5);
+        system(`EverOS Search Results for "${query}":\n${formatEverosRecall(hits)}`);
+      } catch (e) {
+        system(`Error searching EverOS: ${e}`);
+      }
+    } else if (cmd === "/everos flush") {
+      try {
+        const res = await flushEveros(currentThreadId || "default");
+        system(`EverOS Flush: ${res.flushed ? 'Success' : 'No turns pending'}\n${res.episode_path ? 'Episode: ' + res.episode_path : ''}`);
+      } catch (e) {
+        system(`Error flushing EverOS: ${e}`);
+      }
+    } else if (cmd.startsWith("/everos add ")) {
+      const fact = cmd.replace("/everos add ", "").trim();
+      try {
+        await rememberEveros(fact, "user");
+        system(`Added memory fact to EverOS: ${fact}`);
+      } catch (e) {
+        system(`Error adding EverOS memory: ${e}`);
+      }
+    } else if (cmd === "/everos profile") {
+      try {
+        const prof = await getEverosProfile();
+        system(`EverOS Profile:\n${prof}`);
+      } catch (e) {
+        system(`Error getting EverOS profile: ${e}`);
       }
     } else if (cmd === "/learn") {
       system("Analyzing transcript to extract reusable skills...");
@@ -772,6 +919,18 @@
         themeResolved = applyTheme(themePref, packId);
         system(`Theme: ${themePref} (${themeResolved})`);
       }
+    } else if (cmd === "/plan" || cmd.startsWith("/plan ")) {
+      const arg = cmd === "/plan" ? projectName(currentProject) : cmd.replace("/plan ", "").trim();
+      system(runDesignCommand("/plan", arg || projectName(currentProject)) || "");
+    } else if (cmd === "/grill-me" || cmd.startsWith("/grill-me ")) {
+      const arg = cmd === "/grill-me" ? projectName(currentProject) : cmd.replace("/grill-me ", "").trim();
+      system(runDesignCommand("/grill-me", arg) || "");
+    } else if (cmd === "/adr" || cmd.startsWith("/adr ")) {
+      const arg = cmd === "/adr" ? projectName(currentProject) : cmd.replace("/adr ", "").trim();
+      system(runDesignCommand("/adr", arg) || "");
+    } else if (cmd === "/context" || cmd.startsWith("/context ")) {
+      const arg = cmd === "/context" ? "" : cmd.replace("/context ", "").trim();
+      system(runDesignCommand("/context", arg) || "");
     } else if (cmd === "/stop") {
       try {
         const result = await invoke<string>("stop_turn", { threadId: currentThreadId });
@@ -779,13 +938,26 @@
       } catch (e) {
         system(`Error: ${e}`);
       }
-    } else if (cmd === "/mcp") {
+    } else if (cmd === "/mcp" || cmd.startsWith("/mcp ")) {
       try {
         const result = await invoke<string>("list_mcp", { projectPath: currentProject });
-        system(result);
+        const want = cmd.slice(5).trim();
+        if (!want) {
+          system(result);
+        } else {
+          const lines = result.split("\n").filter((l) => l.toLowerCase().includes(want.toLowerCase()));
+          system(lines.length ? lines.join("\n") : `${result}\n(no server matching ${want})`);
+        }
       } catch (e) {
         system(`Error: ${e}`);
       }
+    } else if (PAGE_TO_WIN[cmd]) {
+      const id = PAGE_TO_WIN[cmd] as WinId;
+      openWins = ensureWin(openWins, id);
+      if (id === "github") await openView("repos");
+      else if (id === "users") await openView("users");
+      else if (id === "schedule") await openView("schedule");
+      else if (id === "workspace") await loadTree();
     } else if (moduleCommands[cmd] || moduleCommands[cmd.split(" ")[0]]) {
       const key = moduleCommands[cmd] ? cmd : cmd.split(" ")[0];
       system(`Module ${moduleCommands[key]} handled ${cmd} (no app rebuild).`);
@@ -823,6 +995,9 @@
     }
 
     messages = [...messages, { role: "user", content: text }];
+    if (currentThreadId) {
+      addEverosTurn(currentThreadId, "user", text).catch(() => {});
+    }
 
     try {
       const persona = session ? await recallPersona(session.login, text) : "";
@@ -918,6 +1093,33 @@
       composerEl.focus();
       composerEl.setSelectionRange(pos, pos);
     });
+  }
+
+  function pickSlash(item: SlashItem) {
+    composerInput = applySlashPick(item);
+    slashIndex = 0;
+    tick().then(() => {
+      composerEl?.focus();
+      const pos = composerInput.length;
+      composerEl?.setSelectionRange(pos, pos);
+    });
+  }
+
+  function onComposerKey(e: KeyboardEvent) {
+    if (!slashHits.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      slashIndex = (slashIndex + 1) % slashHits.length;
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      slashIndex = (slashIndex - 1 + slashHits.length) % slashHits.length;
+    } else if (e.key === "Tab" || e.key === "Enter") {
+      e.preventDefault();
+      pickSlash(slashHits[slashIndex]);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      composerInput = "";
+    }
   }
 
   async function onContext(e: MouseEvent) {
@@ -1082,8 +1284,58 @@
           </div>
         {/if}
       </div>
-      <span class="chip" data-ctx="mode"><em>mode</em> {currentMode}</span>
-      <span class="chip truncate"><em>model</em> {currentModel}</span>
+      <div class="proj" data-ctx="mode" bind:this={modeRoot}>
+        <button
+          type="button"
+          class="chip proj-key"
+          aria-expanded={showModes}
+          aria-haspopup="listbox"
+          on:click={toggleModes}
+        >
+          <em>mode</em> {currentMode}
+        </button>
+        {#if showModes}
+          <div class="proj-menu" role="listbox" aria-label="Modes">
+            {#each VALID_MODES as mode}
+              <button
+                type="button"
+                role="option"
+                aria-selected={mode === currentMode}
+                class:here={mode === currentMode}
+                on:click={() => selectMode(mode)}
+              >
+                <span class="proj-name">{mode}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <div class="proj" data-ctx="model" bind:this={modelRoot}>
+        <button
+          type="button"
+          class="chip proj-key truncate"
+          aria-expanded={showModels}
+          aria-haspopup="listbox"
+          on:click={toggleModels}
+        >
+          <em>model</em> {currentModel}
+        </button>
+        {#if showModels}
+          <div class="proj-menu" role="listbox" aria-label="Models">
+            {#each MODEL_CHOICES as model}
+              <button
+                type="button"
+                role="option"
+                aria-selected={model === currentModel}
+                class:here={model === currentModel}
+                on:click={() => selectModel(model)}
+              >
+                <span class="proj-name">{model}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     </div>
     <div data-tauri-drag-region class="drag"></div>
     <div class="meta">
@@ -1131,6 +1383,9 @@
               <li>
                 <strong>{repo.name}</strong>
                 <span class="tag">{repo.visibility}</span>
+                {#if repo.branch}<span class="tag">{repo.branch}</span>{/if}
+                {#if repo.worktree}<span class="tag">{repo.worktree}</span>{/if}
+                {#if repo.commit}<span class="tag">{repo.commit}</span>{/if}
                 {#if repo.html_url}
                   <a class="md-a" href={repo.html_url} rel="noopener noreferrer">{repo.html_url}</a>
                 {/if}
@@ -1154,6 +1409,31 @@
                 <strong>{user.login}</strong>
                 <span class="tag">{user.role}</span>
                 <span class="tag">{user.status}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+    {/if}
+    {#if openWins.includes("schedule")}
+      <section class="pane glass manage" data-view="schedule">
+        <h1>Scheduled tasks</h1>
+        <form class="sched-form" on:submit|preventDefault={submitSchedule}>
+          <input bind:value={schedTitle} placeholder="title" />
+          <input bind:value={schedWhen} placeholder="run at" />
+          <input bind:value={schedInterval} placeholder="interval" />
+          <button type="submit" class="key sched-add">Add</button>
+        </form>
+        {#if schedNotice}<p class="empty">{schedNotice}</p>{/if}
+        {#if schedules.length === 0}
+          <p class="empty">No scheduled tasks.</p>
+        {:else}
+          <ul class="cards">
+            {#each schedules as row}
+              <li>
+                <strong>{row.title}</strong>
+                <span class="tag">{row.runAt || row.interval}</span>
+                <button type="button" class="key" on:click={() => dropSchedule(row.id)}>Cancel</button>
               </li>
             {/each}
           </ul>
@@ -1297,12 +1577,30 @@
 
   {#if openWins.includes("chat")}
   <form class="dock glass" data-ctx="composer" on:submit|preventDefault={handleSend}>
+    {#if slashHits.length}
+      <div class="slash-menu" role="listbox" aria-label="Slash commands">
+        {#each slashHits as item, i}
+          <button
+            type="button"
+            role="option"
+            class:here={i === slashIndex}
+            aria-selected={i === slashIndex}
+            on:click={() => pickSlash(item)}
+          >
+            <span>{item.cmd}</span>
+            <span class="tag">{item.hint}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
     <div class="dock-row">
       <input
         type="text"
         bind:this={composerEl}
         bind:value={composerInput}
-        placeholder="message or /fork /task /theme…"
+        placeholder="message or /fork /task /theme /plan…"
+        autocomplete="off"
+        on:keydown={onComposerKey}
       />
       <button type="submit" class="send">SEND</button>
     </div>
@@ -1785,10 +2083,41 @@
   .muted { opacity: 0.5; font-size: 13px; }
 
   .dock {
+    position: relative;
     flex-shrink: 0;
     z-index: 4;
     padding: 16px var(--gutter) calc(28px + env(safe-area-inset-bottom, 0px));
     background: color-mix(in srgb, var(--shell) 82%, transparent);
+  }
+  .slash-menu {
+    position: absolute;
+    left: var(--gutter);
+    right: var(--gutter);
+    bottom: calc(100% - 8px);
+    max-height: 280px;
+    overflow: auto;
+    padding: 8px;
+    border: 1px solid var(--hair);
+    border-radius: 12px;
+    background: var(--key);
+    box-shadow: 0 16px 40px color-mix(in srgb, var(--void) 22%, transparent);
+  }
+  .slash-menu button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 0;
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .slash-menu button:hover, .slash-menu button.here {
+    background: var(--panel);
   }
   .dock-row {
     max-width: var(--page);
@@ -1951,7 +2280,7 @@
     .chrome { padding-left: 20px; gap: 12px; min-height: 64px; }
     .lead { gap: 16px; }
     .drag { display: none; }
-    .lead > .chip { display: none; }
+    .lead > .proj + .proj { display: none; }
     .meta .led { display: none; }
     .proj-key { max-width: 38vw; }
     .stage, .dock, .views { padding-left: 20px; padding-right: 20px; }

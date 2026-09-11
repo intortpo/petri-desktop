@@ -1,13 +1,18 @@
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tauri::State;
 
 mod agy_session;
+mod consensus;
 mod context_compiler;
+mod everos;
 mod learning;
+mod mesh_peers;
 mod paths;
+mod pykernel;
+mod rlm;
 mod security;
 mod skills;
 mod store;
@@ -22,6 +27,9 @@ use store::Store;
 struct AppState {
     store: Mutex<Store>,
     paths: MeshPaths,
+    rlm: Arc<Mutex<rlm::RlmRegistry>>,
+    py: Mutex<Option<pykernel::PyKernel>>,
+    everos: Arc<everos::EverosManager>,
 }
 
 fn default_project() -> String {
@@ -248,6 +256,16 @@ fn start_turn(
     if let Some(p) = persona.as_deref().filter(|s| !s.is_empty()) {
         pack = format!("{p}\n\n{pack}");
     }
+    let voted = consensus::dispatch_concurrent(
+        &prompt,
+        |p| consensus::Candidate {
+            text: p.to_string(),
+            score: 0.6,
+            backend: "primary".into(),
+        },
+        consensus::critic_backend,
+    );
+    pack = format!("[CONSENSUS]\n{voted}\n\n{pack}");
     let db = db_path(&state);
     spawn_turn(
         app,
@@ -323,6 +341,7 @@ fn remember_lesson(
     lesson: String,
     _project_path: Option<String>,
 ) -> Result<(), String> {
+    let _ = state.everos.remember(&lesson, "lesson");
     learning::remember_lesson(&state.paths.lessons(), &lesson)
 }
 
@@ -333,7 +352,19 @@ fn recall_knowledge(
     project_path: Option<String>,
 ) -> Result<String, String> {
     let project = project_path.unwrap_or_else(default_project);
-    learning::recall(&state.paths.lessons(), &project, &query)
+    let mut base = learning::recall(&state.paths.lessons(), &project, &query)?;
+    if let Ok(everos_hits) = state.everos.search(&query, 3) {
+        if !everos_hits.is_empty() {
+            base.push_str("\n\n---\nEverOS Memories:\n");
+            for hit in everos_hits {
+                if let Some(content) = hit.get("content").and_then(|c| c.as_str()) {
+                    let kind = hit.get("type").and_then(|t| t.as_str()).unwrap_or("memory");
+                    base.push_str(&format!("• [{kind}] {content}\n"));
+                }
+            }
+        }
+    }
+    Ok(base)
 }
 
 #[tauri::command]
@@ -714,6 +745,113 @@ fn list_audit() -> Result<Vec<AuditRow>, String> {
     }])
 }
 
+#[tauri::command]
+fn list_mesh_peers() -> Result<Vec<mesh_peers::Peer>, String> {
+    let ts = Command::new("tailscale")
+        .arg("status")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    Ok(mesh_peers::parse_tailscale_status(&ts))
+}
+
+#[tauri::command]
+fn consensus_turn(prompt: String) -> Result<String, String> {
+    Ok(consensus::dispatch_concurrent(
+        &prompt,
+        |p| consensus::Candidate {
+            text: p.to_string(),
+            score: 0.6,
+            backend: "primary".into(),
+        },
+        consensus::critic_backend,
+    ))
+}
+
+#[tauri::command]
+fn rlm_spawn(state: State<'_, AppState>, task: String) -> Result<rlm::RlmHandle, String> {
+    Ok(rlm::spawn_rlm(Arc::clone(&state.rlm), task))
+}
+
+#[tauri::command]
+fn rlm_status(state: State<'_, AppState>, id: String) -> Result<Option<rlm::RlmHandle>, String> {
+    Ok(state.rlm.lock().map_err(|e| e.to_string())?.get(&id))
+}
+
+#[tauri::command]
+fn apply_refine_cmd(
+    state: State<'_, AppState>,
+    kind: String,
+    evidence: String,
+    body: String,
+) -> Result<String, String> {
+    let dir = state.paths.root.join("harness");
+    let path = rlm::apply_refine(&dir, &kind, &evidence, &body)?;
+    Ok(path.display().to_string())
+}
+
+fn with_py<T>(state: &AppState, f: impl FnOnce(&mut pykernel::PyKernel) -> Result<T, String>) -> Result<T, String> {
+    let mut slot = state.py.lock().map_err(|e| e.to_string())?;
+    if slot.is_none() {
+        *slot = Some(pykernel::PyKernel::start()?);
+    }
+    f(slot.as_mut().unwrap())
+}
+
+#[tauri::command]
+fn py_exec(state: State<'_, AppState>, code: String) -> Result<String, String> {
+    with_py(&state, |k| k.exec(&code))
+}
+
+#[tauri::command]
+fn py_eval(state: State<'_, AppState>, expr: String) -> Result<String, String> {
+    with_py(&state, |k| k.eval(&expr))
+}
+
+#[tauri::command]
+fn everos_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    state.everos.health()
+}
+
+#[tauri::command]
+fn everos_add_turn(
+    state: State<'_, AppState>,
+    session_id: String,
+    role: String,
+    content: String,
+) -> Result<serde_json::Value, String> {
+    state.everos.add_turn(&session_id, &role, &content)
+}
+
+#[tauri::command]
+fn everos_remember(
+    state: State<'_, AppState>,
+    lesson: String,
+    domain: Option<String>,
+) -> Result<serde_json::Value, String> {
+    state.everos.remember(&lesson, domain.as_deref().unwrap_or("general"))
+}
+
+#[tauri::command]
+fn everos_flush(state: State<'_, AppState>, session_id: String) -> Result<serde_json::Value, String> {
+    state.everos.flush(&session_id)
+}
+
+#[tauri::command]
+fn everos_search(
+    state: State<'_, AppState>,
+    query: String,
+    top_k: Option<usize>,
+) -> Result<Vec<serde_json::Value>, String> {
+    state.everos.search(&query, top_k.unwrap_or(5))
+}
+
+#[tauri::command]
+fn everos_get_profile(state: State<'_, AppState>) -> Result<String, String> {
+    state.everos.get_profile()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let paths = MeshPaths::from_env();
@@ -722,6 +860,9 @@ pub fn run() {
         .manage(AppState {
             store: Mutex::new(Store::open(&paths.db()).expect("Failed to init Store")),
             paths,
+            rlm: Arc::new(Mutex::new(rlm::RlmRegistry::default())),
+            py: Mutex::new(None),
+            everos: Arc::new(everos::EverosManager::new()),
         })
         .invoke_handler(tauri::generate_handler![
             get_auth_status,
@@ -765,7 +906,20 @@ pub fn run() {
             github_device_start,
             list_workspace_tree,
             list_cores,
-            list_audit
+            list_audit,
+            list_mesh_peers,
+            consensus_turn,
+            rlm_spawn,
+            rlm_status,
+            apply_refine_cmd,
+            py_exec,
+            py_eval,
+            everos_status,
+            everos_add_turn,
+            everos_remember,
+            everos_flush,
+            everos_search,
+            everos_get_profile
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

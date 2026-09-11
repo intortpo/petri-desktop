@@ -4,6 +4,7 @@ export const WIN_IDS = [
   "workspace",
   "settings",
   "users",
+  "schedule",
   "profile",
   "branch",
 ] as const;
@@ -12,10 +13,11 @@ export type WinId = (typeof WIN_IDS)[number];
 
 export const WIN_LABEL: Record<WinId, string> = {
   chat: "Chat",
-  github: "GitHub",
+  github: "GitHub repos",
   workspace: "Workspace",
   settings: "Settings",
   users: "Users",
+  schedule: "Scheduled tasks",
   profile: "Profile",
   branch: "Branch",
 };
