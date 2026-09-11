@@ -1,0 +1,34 @@
+{
+  "name": "petri-desktop",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
+    "test:format": "node --experimental-strip-types --test tests/format.test.ts",
+    "test:ctx": "node --experimental-strip-types --test tests/ctx.test.ts",
+    "test:manage": "node --experimental-strip-types --test tests/manage.test.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tauri-apps/cli": "^2.11.4",
+    "@tsconfig/svelte": "^5.0.8",
+    "@types/node": "^24.13.3",
+    "autoprefixer": "^10.5.6",
+    "postcss": "^8.5.28",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1"
+  }
+}

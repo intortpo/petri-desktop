@@ -1,0 +1,141 @@
+@import "tailwindcss";
+@source "../index.html";
+@source "./**/*.{svelte,ts,js}";
+
+@property --edge-a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+:root {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --void: #3c4c85;
+  --ash: #dab71f;
+  --slate: #789044;
+  --ice: #c0cdce;
+  --record: #964444;
+  --petri-hot: var(--hot);
+  --petri-record: var(--record);
+  --petri-lcd: var(--void);
+  --petri-duration: 160ms;
+  --hot: var(--record);
+  --hot-ink: var(--ice);
+  color-scheme: light;
+  --shell: transparent;
+  --ink: var(--void);
+  --muted: var(--slate);
+  --hair: color-mix(in srgb, var(--void) 12%, transparent);
+  --key: color-mix(in srgb, var(--ice) 70%, var(--ash));
+  --lcd-bg: var(--void);
+  --lcd-ink: var(--ice);
+  --lcd-pad: color-mix(in srgb, var(--slate) 42%, var(--void));
+  --lcd-user: var(--ice);
+  --lcd-user-ink: var(--void);
+  --panel: color-mix(in srgb, var(--void) 6%, transparent);
+  --focus: var(--void);
+  --glass: color-mix(in srgb, var(--ice) 14%, transparent);
+  --page: 720px;
+  --gutter: 48px;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --petri-lcd: var(--ice);
+  --shell: transparent;
+  --ink: var(--ash);
+  --muted: var(--slate);
+  --hair: color-mix(in srgb, var(--ash) 12%, transparent);
+  --key: color-mix(in srgb, var(--void) 82%, var(--slate));
+  --lcd-bg: var(--void);
+  --lcd-ink: var(--ice);
+  --lcd-pad: color-mix(in srgb, var(--slate) 38%, var(--void));
+  --lcd-user: var(--ice);
+  --lcd-user-ink: var(--void);
+  --panel: color-mix(in srgb, var(--ash) 7%, transparent);
+  --focus: var(--ash);
+  --hot: var(--ash);
+  --hot-ink: var(--void);
+  --glass: color-mix(in srgb, var(--ash) 8%, transparent);
+}
+
+html[data-pack-hot="record"] {
+  --hot: var(--record);
+  --hot-ink: var(--ice);
+}
+
+html[data-theme="dark"][data-pack-hot="record"] {
+  --hot: var(--record);
+  --hot-ink: var(--ice);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --petri-duration: 0ms; }
+}
+
+html, body, #app {
+  min-height: 100%;
+  background: transparent;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--hair);
+}
+
+button, input {
+  font-family: inherit;
+}
+
+button, .key, .send, .theme-key {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+  transition: transform 120ms var(--ease-out), background-color 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+
+button::after, .key::after, .send::after, .theme-key::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 2;
+  background: conic-gradient(from var(--edge-a), transparent 0 62%, var(--ink) 78%, transparent 92%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  transition: opacity 160ms var(--ease-out);
+}
+
+button:hover::after, button:focus-visible::after,
+.key:hover::after, .send:hover::after, .theme-key:hover::after {
+  opacity: 0.9;
+  animation: edge-spin 1.15s linear infinite;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@keyframes edge-spin {
+  to { --edge-a: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:active:not(:disabled) { transform: none; }
+  button::after, .key::after, .send::after, .theme-key::after {
+    animation: none !important;
+  }
+}
