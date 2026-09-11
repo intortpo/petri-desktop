@@ -423,46 +423,10 @@
     }
   }
 
-  async function handleLoginClick() {
-    gateNotice = "";
-    try {
-      const pat = await invoke<string>("get_github_pat");
-      if (pat?.trim()) {
-        const msg = await invoke<string>("verify_github_pat", { pat: pat.trim() });
-        const login = (msg.match(/as\s+(\S+)/i) || [])[1] || "user";
-        session = { login, email: "" };
-        await invoke("save_github_session", { login, email: "" }).catch(() => {});
-        await loadModules();
-        await handleCommand("/new");
-        return;
-      }
-    } catch {}
-    await startGithubDevice();
-  }
-
-  function handleGatePaste(e: ClipboardEvent) {
-    const text = e.clipboardData?.getData("text")?.trim();
-    if (text && (text.startsWith("ghp_") || text.startsWith("github_pat_") || text.length >= 35)) {
-      patDraft = text;
-      loginWithPat();
-    }
-  }
-
   async function startGithubDevice() {
     gateNotice = "";
     try {
-      deviceLogin = await invoke<{
-        device_code: string;
-        user_code: string;
-        verification_uri: string;
-      }>("github_device_start");
-      if (deviceLogin?.verification_uri) {
-        try {
-          await invoke("plugin:opener|open_url", { url: deviceLogin.verification_uri });
-        } catch {
-          window.open(deviceLogin.verification_uri, "_blank");
-        }
-      }
+      deviceLogin = await invoke("github_device_start");
     } catch (e) {
       gateNotice = String(e);
     }
@@ -1264,20 +1228,19 @@
 <SilkBg />
 
 {#if !session}
-<div class="gate" on:paste={handleGatePaste}>
+<div class="gate">
   <div class="glass gate-card">
-    <div class="gate-disc" aria-label="Petri Hardware Disc">
-      <img class="gate-logo" src={petriIcon} alt="Petri" />
-    </div>
-    <button type="button" class="gate-login-btn" on:click={handleLoginClick} aria-label="Login">
-      <svg class="gh-icon" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true">
-        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-      </svg>
-      <span>Login</span>
-    </button>
+    <img class="brand-icon" src={petriIcon} alt="" width="72" height="72" />
+    <strong class="brand-name">HIVE</strong>
+    <em class="brand-by">by petri</em>
+    <p>Sign in with GitHub to enter.</p>
+    <button type="button" class="send" on:click={startGithubDevice}>Continue with GitHub</button>
     {#if deviceLogin}
-      <div class="device-code-chip" title="GitHub Device Code">{deviceLogin.user_code}</div>
+      <p class="empty">Open {deviceLogin.verification_uri} and enter {deviceLogin.user_code}</p>
     {/if}
+    <input bind:value={patDraft} placeholder="or paste a GitHub PAT" aria-label="GitHub PAT" />
+    <button type="button" class="key" on:click={loginWithPat}>Use PAT</button>
+    {#if gateNotice}<p class="empty">{gateNotice}</p>{/if}
   </div>
 </div>
 {:else}
@@ -1705,10 +1668,10 @@
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    min-height: 88px;
-    padding: 0 16px 0 44px;
-    gap: 28px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+    min-height: 72px;
+    padding: 0 8px 0 40px;
+    gap: 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     background: #080a0d;
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -1719,7 +1682,7 @@
     align-items: center;
     gap: 28px;
     padding: 18px 0;
-    font-size: 14px;
+    font-size: 13px;
     min-width: 0;
   }
   .drag {
@@ -1730,35 +1693,32 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     color: var(--ink);
     flex-shrink: 0;
   }
   .brand-icon {
     display: block;
-    width: 68px;
-    height: 68px;
+    width: 56px;
+    height: 56px;
     border-radius: 50%;
-    object-fit: contain;
-    padding: 6px;
-    background: radial-gradient(circle at 35% 30%, #2a3140 0%, #10131a 80%);
-    border: 1.5px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7), inset 0 1px 2px rgba(255, 255, 255, 0.2);
+    object-fit: cover;
+    background: #000;
   }
   .brand-copy {
     display: flex;
     flex-direction: column;
-    line-height: 1.1;
+    line-height: 1.05;
   }
   .brand-name {
-    font-size: 24px;
-    font-weight: 700;
-    letter-spacing: 0.3em;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.28em;
   }
   .brand-by {
     font-style: normal;
-    font-size: 11px;
-    letter-spacing: 0.22em;
+    font-size: 9px;
+    letter-spacing: 0.18em;
     color: var(--muted);
     text-transform: lowercase;
   }
@@ -2261,105 +2221,30 @@
     position: relative;
     z-index: 2;
     min-height: 100dvh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: clamp(32px, 6vw, 72px);
+    display: grid;
+    place-items: center;
+    padding: 24px;
   }
   .gate-card {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 36px;
-    padding: clamp(52px, 8vw, 92px) clamp(44px, 8vw, 96px);
-    border-radius: 36px;
-    max-width: 600px;
-    width: 100%;
+    gap: 12px;
+    padding: 36px 40px;
+    border-radius: 20px;
+    max-width: 420px;
     text-align: center;
-    background: #0a0c10 !important;
-    border: 1.5px solid rgba(255, 255, 255, 0.14) !important;
-    box-shadow: 0 40px 100px rgba(0, 0, 0, 0.88), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-    backdrop-filter: blur(32px);
-    -webkit-backdrop-filter: blur(32px);
+    background: #0a0c10;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
-  .gate-disc {
-    position: relative;
-    width: clamp(180px, 26vw, 260px);
-    height: clamp(180px, 26vw, 260px);
-    border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #252b38 0%, #12151d 60%, #080a0e 100%);
-    border: 2.5px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.9), inset 0 2px 6px rgba(255, 255, 255, 0.25), inset 0 -4px 12px rgba(0, 0, 0, 0.95);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-  }
-  .gate-disc::before {
-    content: "";
-    position: absolute;
-    inset: 12px;
-    border-radius: 50%;
-    border: 1.5px dashed rgba(255, 255, 255, 0.2);
-    pointer-events: none;
-  }
-  .gate-logo {
+  .gate-card input {
     width: 100%;
-    height: 100%;
-    object-fit: contain;
-    filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.8));
-    display: block;
-  }
-  .gate-login-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 20px;
-    width: 100%;
-    min-height: 88px;
-    padding: 0 44px;
-    border-radius: 22px;
-    background: linear-gradient(180deg, rgba(34, 40, 54, 0.98) 0%, rgba(14, 17, 24, 0.99) 100%);
-    border: 1.5px solid rgba(255, 255, 255, 0.22);
-    box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.26), inset 0 -1.5px 0 rgba(0, 0, 0, 0.6), 0 20px 48px rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    color: #f8fafc;
-    font-size: 24px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: transform 120ms var(--ease-out), background 160ms var(--ease-out), border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
-    user-select: none;
-  }
-  .gate-login-btn:hover {
-    background: linear-gradient(180deg, rgba(48, 56, 76, 0.98) 0%, rgba(20, 25, 36, 0.99) 100%);
-    border-color: rgba(255, 255, 255, 0.38);
-    box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.38), inset 0 -1.5px 0 rgba(0, 0, 0, 0.7), 0 24px 56px rgba(0, 0, 0, 0.9);
-  }
-  .gate-login-btn:active {
-    transform: translateY(2px) scale(0.985);
-    background: linear-gradient(180deg, rgba(10, 12, 16, 0.99) 0%, rgba(26, 30, 42, 0.99) 100%);
-    box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.95), 0 4px 12px rgba(0, 0, 0, 0.5);
-  }
-  .gate-login-btn .gh-icon {
-    width: 36px;
-    height: 36px;
-    flex-shrink: 0;
-  }
-  .device-code-chip {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: 0.24em;
-    color: #f1f5f9;
-    padding: 16px 36px;
-    border-radius: 16px;
-    background: #080a0e;
-    border: 1.5px solid rgba(255, 255, 255, 0.2);
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
+    height: 44px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: #090a0d;
+    color: var(--ink);
+    padding: 0 12px;
   }
   .prompt-box {
     width: 100%;
@@ -2406,46 +2291,6 @@
   .lcd::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--lcd-ink) 22%, transparent); border-radius: 99px; }
   .tree::-webkit-scrollbar-thumb { background: var(--hair); border-radius: 99px; }
 
-  @media (pointer: coarse), (max-width: 1024px) {
-    .gate-card {
-      max-width: 94vw;
-      padding: clamp(48px, 10vw, 96px) clamp(24px, 6vw, 64px);
-    }
-    .gate-disc {
-      width: clamp(200px, 32vw, 280px);
-      height: clamp(200px, 32vw, 280px);
-    }
-    .gate-login-btn {
-      min-height: 96px;
-      font-size: 26px;
-      border-radius: 24px;
-    }
-    .gate-login-btn .gh-icon {
-      width: 40px;
-      height: 40px;
-    }
-    .chrome {
-      min-height: 96px;
-      padding-left: 24px;
-    }
-    .brand-icon {
-      width: 76px;
-      height: 76px;
-    }
-    .dock input {
-      height: 70px;
-      font-size: 19px;
-    }
-    .send {
-      min-width: 140px;
-      height: 70px;
-      font-size: 17px;
-    }
-    .theme-key, .proj-key {
-      min-height: 52px;
-      font-size: 14px;
-    }
-  }
   @media (max-width: 820px) {
     .chrome { padding-left: 20px; gap: 12px; min-height: 64px; }
     .lead { gap: 16px; }

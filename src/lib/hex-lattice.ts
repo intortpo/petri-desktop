@@ -67,7 +67,7 @@ float sdHexagon(vec2 p, float r) {
 
 vec2 cubeRound(vec2 qr) {
   vec3 c = vec3(qr.x, -qr.x - qr.y, qr.y);
-  vec3 rc = round(c);
+  vec3 rc = floor(c + 0.5);
   vec3 d = abs(rc - c);
   if (d.x > d.y && d.x > d.z) rc.x = -rc.y - rc.z;
   else if (d.y > d.z) rc.y = -rc.x - rc.z;

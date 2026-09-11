@@ -19,7 +19,11 @@
   }
 
   onMount(() => {
-    stop = startSilk(canvas, colors);
+    try {
+      stop = startSilk(canvas, colors);
+    } catch (e) {
+      console.warn("SilkBg shader init failed:", e);
+    }
     return () => stop?.();
   });
 </script>
