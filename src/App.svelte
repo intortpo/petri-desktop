@@ -136,6 +136,7 @@
   let openWins: WinId[] = defaultOpen(typeof window !== "undefined" ? isDesktop(window.innerWidth) : true);
   let activeWin: WinId = "chat";
   let splitWin: WinId = "workspace";
+  let splitOpen = false;
   let layoutMode: LayoutMode = "tabs";
   let addTabMenuOpen = false;
   let repoFilter = "";
@@ -350,15 +351,12 @@
       }
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
         const num = parseInt(e.key, 10);
-        if (num >= 1 && num <= openWins.length) {
+        if (num >= 1 && num <= visibleWinIds.length) {
           e.preventDefault();
-          activateWindow(openWins[num - 1]);
-        } else if (e.key.toLowerCase() === "w") {
+          activateWindow(visibleWinIds[num - 1]);
+        } else if (e.key.toLowerCase() === "s" || e.key.toLowerCase() === "l") {
           e.preventDefault();
-          closeWindow(activeWin);
-        } else if (e.key.toLowerCase() === "l") {
-          e.preventDefault();
-          toggleLayoutMode();
+          toggleSplit();
         }
       }
     };
@@ -525,11 +523,9 @@
 
   function activateWindow(id: WinId) {
     if (!visibleWinIds.includes(id)) return;
-    const res = activateTab(openWins, activeWin, id);
-    openWins = res.open;
-    activeWin = res.active;
-    if (layoutMode === "split" && activeWin !== "chat") {
-      splitWin = id;
+    activeWin = id;
+    if (!openWins.includes(id)) {
+      openWins = [...openWins, id];
     }
     if (id === "repos" as never || id === "github") refreshRepos();
     if (id === "users") refreshUsers();
@@ -547,44 +543,28 @@
   }
 
   function toggleLayoutMode() {
-    layoutMode = cycleLayout(layoutMode);
+    toggleSplit();
+  }
+
+  function toggleSplit() {
+    splitOpen = !splitOpen;
   }
 
   function openAllApps() {
     if (isSysminUser) {
       openWins = [...WIN_IDS];
-      layoutMode = "grid";
+      splitOpen = true;
     }
   }
 
   function toggleWindow(id: WinId) {
-    if (!visibleWinIds.includes(id)) return;
-    if (layoutMode === "tabs") {
-      activateWindow(id);
-    } else {
-      openWins = toggleWin(openWins, id);
-      if (openWins.includes(id)) {
-        activeWin = id;
-      } else if (activeWin === id) {
-        activeWin = openWins[0] || "chat";
-      }
-      if (id === "repos" as never || id === "github") refreshRepos();
-      if (id === "users") refreshUsers();
-      if (id === "workspace") loadTree();
-      if (id === "schedule") openView("schedule");
-    }
+    activateWindow(id);
   }
 
   function isPaneVisible(id: WinId): boolean {
-    if (!openWins.includes(id)) return false;
-    if (layoutMode === "tabs") return activeWin === id;
-    if (layoutMode === "split") {
-      if (activeWin === "chat") {
-        return id === "chat" || id === splitWin;
-      }
-      return id === activeWin || id === "chat";
-    }
-    return true; // grid mode
+    if (id === activeWin) return true;
+    if (splitOpen && id === "chat") return true;
+    return false;
   }
 
   async function loadTree() {
@@ -1407,7 +1387,9 @@
       <img src={petriLogo} alt="" />
     </div>
 
-    <img class="gate-hive-hero" src={petriIcon} alt="HiVE" width="190" height="190" />
+    <div class="gate-hex-hero">
+      <img class="gate-hive-hero" src={petriIcon} alt="HiVE" width="190" height="190" />
+    </div>
 
     <button type="button" class="gate-login-btn" on:click={handleLoginClick} aria-label="Login">
       <svg class="gh-icon" viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true">
@@ -1432,28 +1414,34 @@
   </div>
 </div>
 {:else}
-<div class="shell" role="application" on:contextmenu={onContext}>
-  <header class="chrome">
-    <div class="lead">
-      <span class="brand" title="HIVE by petri">
-        <img class="brand-icon" src={petriIcon} alt="" width="56" height="56" />
+<div class="shell dash-shell" role="application" on:contextmenu={onContext}>
+  <!-- LEFT SIDEBAR -->
+  <aside class="dash-sidebar glass" aria-label="Dashboard Sidebar">
+    <div class="sidebar-top">
+      <div class="brand" title="HIVE by petri">
+        <div class="brand-hex">
+          <img class="brand-icon" src={petriIcon} alt="" width="36" height="40" />
+        </div>
         <span class="brand-copy">
           <strong class="brand-name">HIVE</strong>
           <em class="brand-by">by petri</em>
         </span>
-      </span>
-      <div class="proj" data-ctx="project" bind:this={projRoot}>
+      </div>
+
+      <div class="proj sidebar-proj" data-ctx="project" bind:this={projRoot}>
         <button
           type="button"
           class="chip proj-key"
           aria-expanded={showProjects}
           aria-haspopup="listbox"
           on:click={toggleProjects}
+          title="Project: {projectName(currentProject)}"
         >
-          <em>proj</em> {projectName(currentProject)}
+          <em>proj</em> <span class="proj-label">{projectName(currentProject)}</span>
         </button>
         {#if showProjects}
-          <div class="proj-menu" role="listbox" aria-label="Projects">
+          <div class="proj-menu glass" role="listbox" aria-label="Projects">
+            <header>RECENT PROJECTS</header>
             {#each projectList as p}
               <button
                 type="button"
@@ -1472,598 +1460,494 @@
           </div>
         {/if}
       </div>
-      <div class="proj" data-ctx="mode" bind:this={modeRoot}>
+    </div>
+
+    <!-- Navigation Section -->
+    <nav class="dash-nav" aria-label="Cockpit Navigation">
+      <div class="nav-section-title">COCKPIT</div>
+      {#each visibleWinIds as id}
         <button
           type="button"
-          class="chip proj-key"
-          aria-expanded={showModes}
-          aria-haspopup="listbox"
-          on:click={toggleModes}
-        >
-          <em>mode</em> {currentMode}
-        </button>
-        {#if showModes}
-          <div class="proj-menu" role="listbox" aria-label="Modes">
-            {#each VALID_MODES as mode}
-              <button
-                type="button"
-                role="option"
-                aria-selected={mode === currentMode}
-                class:here={mode === currentMode}
-                on:click={() => selectMode(mode)}
-              >
-                <span class="proj-name">{mode}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
-      <div class="proj" data-ctx="model" bind:this={modelRoot}>
-        <button
-          type="button"
-          class="chip proj-key truncate"
-          aria-expanded={showModels}
-          aria-haspopup="listbox"
-          on:click={toggleModels}
-        >
-          <em>model</em> {currentModel}
-        </button>
-        {#if showModels}
-          <div class="proj-menu" role="listbox" aria-label="Models">
-            {#each MODEL_CHOICES as model}
-              <button
-                type="button"
-                role="option"
-                aria-selected={model === currentModel}
-                class:here={model === currentModel}
-                on:click={() => selectModel(model)}
-              >
-                <span class="proj-name">{model}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    </div>
-    <div data-tauri-drag-region class="drag"></div>
-    <div class="meta">
-      <span data-ctx="auth" class="led {authStatus.includes('Unauthenticated') ? 'off' : 'on'}">{authStatus.includes('Unauthenticated') ? 'OFF' : 'OK'}</span>
-      <span data-ctx="mesh" class="led {tailscaleStatus.includes('Offline') ? 'off' : 'on'}">MESH</span>
-      <button type="button" class="theme-key" data-ctx="theme" on:click={cycleTheme} title="Theme">{themePref === 'system' ? 'SYS' : themePref === 'light' ? 'DAY' : 'NITE'}</button>
-    </div>
-    <div class="win">
-      <button type="button" on:click={() => windowAction("min")} aria-label="Minimize">–</button>
-      <button type="button" on:click={() => windowAction("max")} aria-label="Maximize">□</button>
-      <button type="button" class="close" on:click={() => windowAction("close")} aria-label="Close">×</button>
-    </div>
-  </header>
-  <nav class="views tab-strip" aria-label="Windows">
-    <div class="tabs-list" role="tablist">
-      {#each openWins as id}
-        <div
-          class="tab-item"
-          class:here={activeWin === id}
-          role="tab"
-          aria-selected={activeWin === id}
-          tabindex="0"
+          class="dash-nav-btn"
+          class:active={activeWin === id}
           on:click={() => activateWindow(id)}
-          on:keydown={(e) => e.key === "Enter" && activateWindow(id)}
           title="{WIN_LABEL[id]} — {WIN_DESCRIPTIONS[id]}"
         >
-          <svg class="tab-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path fill="currentColor" d={WIN_ICONS[id]} />
           </svg>
-          <span class="tab-label">{WIN_LABEL[id]}</span>
-          {#if openWins.length > 1}
-            <button
-              type="button"
-              class="tab-close"
-              aria-label="Close {WIN_LABEL[id]}"
-              title="Close tab (Alt+W)"
-              on:click|stopPropagation={() => closeWindow(id)}
-            >×</button>
+          <span class="nav-text">{WIN_LABEL[id]}</span>
+          {#if id === "github" && repoResult.items.length > 0}
+            <span class="nav-count">{repoResult.items.length}</span>
+          {:else if id === "workspace" && workspaceTree.length > 0}
+            <span class="nav-count">{workspaceTree.length}</span>
+          {:else if id === "schedule" && schedules.length > 0}
+            <span class="nav-count">{schedules.length}</span>
+          {:else if id === "users" && userResult.items.length > 0}
+            <span class="nav-count">{userResult.items.length}</span>
           {/if}
-        </div>
+        </button>
       {/each}
-    </div>
+    </nav>
 
-    <div class="tab-controls">
-      <div class="add-tab-wrap">
-        <button
-          type="button"
-          class="tab-action-btn add-tab-btn"
-          class:open={addTabMenuOpen}
-          aria-label="Add tab"
-          title="Open new tab"
-          on:click={() => (addTabMenuOpen = !addTabMenuOpen)}
-        >+</button>
-        {#if addTabMenuOpen}
-          <div class="add-tab-menu glass" role="menu">
-            <header class="menu-head">Open Window</header>
-            {#each visibleWinIds as id}
-              <button
-                type="button"
-                role="menuitem"
-                class="menu-item"
-                class:active={openWins.includes(id)}
-                on:click={() => {
-                  activateWindow(id);
-                  addTabMenuOpen = false;
-                }}
-              >
-                <svg class="menu-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                  <path fill="currentColor" d={WIN_ICONS[id]} />
-                </svg>
-                <span class="menu-label">{WIN_LABEL[id]}</span>
-                {#if openWins.includes(id)}
-                  <span class="menu-badge">open</span>
-                {/if}
-              </button>
-            {/each}
+    <!-- Sidebar Footer -->
+    <div class="sidebar-footer">
+      <div class="meta">
+        <span data-ctx="auth" class="led {authStatus.includes('Unauthenticated') ? 'off' : 'on'}">{authStatus.includes('Unauthenticated') ? 'OFF' : 'OK'}</span>
+        <span data-ctx="mesh" class="led {tailscaleStatus.includes('Offline') ? 'off' : 'on'}">MESH</span>
+        <button type="button" class="theme-key" data-ctx="theme" on:click={cycleTheme} title="Theme">{themePref === 'system' ? 'SYS' : themePref === 'light' ? 'DAY' : 'NITE'}</button>
+      </div>
+      {#if session}
+        <div class="sidebar-user" title="{session.login} ({isSysminUser ? 'sysmin' : 'member'})">
+          <span class="user-avatar">{session.login.charAt(0).toUpperCase()}</span>
+          <div class="user-info">
+            <span class="user-login">{session.login}</span>
+            <span class="user-badge">{isSysminUser ? "sysmin" : "member"}</span>
           </div>
-        {/if}
-      </div>
-
-      <div class="layout-switch" role="group" aria-label="Layout mode">
-        <button
-          type="button"
-          class="layout-btn"
-          class:here={layoutMode === 'tabs'}
-          title="Tabs Mode (Alt+L) — Focused single window"
-          aria-pressed={layoutMode === 'tabs'}
-          on:click={() => (layoutMode = 'tabs')}
-        >
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
-            <rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
-            <line x1="2" y1="6" x2="14" y2="6" stroke="currentColor" stroke-width="1.2" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="layout-btn"
-          class:here={layoutMode === 'split'}
-          title="Split Mode (Alt+L) — Dual-pane workbench"
-          aria-pressed={layoutMode === 'split'}
-          on:click={() => (layoutMode = 'split')}
-        >
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
-            <rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
-            <line x1="8" y1="3" x2="8" y2="13" stroke="currentColor" stroke-width="1.2" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="layout-btn"
-          class:here={layoutMode === 'grid'}
-          title="Grid Mode (Alt+L) — Multi-pane tiled dashboard"
-          aria-pressed={layoutMode === 'grid'}
-          on:click={() => (layoutMode = 'grid')}
-        >
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
-            <rect x="2" y="2" width="5" height="5" rx="1" />
-            <rect x="9" y="2" width="5" height="5" rx="1" />
-            <rect x="2" y="9" width="5" height="5" rx="1" />
-            <rect x="9" y="9" width="5" height="5" rx="1" />
-          </svg>
-        </button>
-      </div>
-
-      {#if isSysminUser}
-        <button
-          type="button"
-          class="all-apps-toggle"
-          class:here={WIN_IDS.every((id) => openWins.includes(id))}
-          on:click={openAllApps}
-          title="Open all apps in grid dashboard"
-        >All apps</button>
+        </div>
       {/if}
     </div>
-  </nav>
+  </aside>
 
-  <main class="desk mode-{layoutMode}">
-    {#if isPaneVisible("workspace")}
-      <section class="pane glass manage" data-view="workspace">
-        <header class="pane-head">
-          <div class="pane-brand">
-            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path fill="currentColor" d={WIN_ICONS["workspace"]} />
-            </svg>
-            <h1>Workspace</h1>
-            <span class="pane-badge">{filteredTree.length}</span>
-          </div>
-          <div class="pane-actions">
-            <input
-              type="text"
-              class="pane-filter"
-              placeholder="Filter files…"
-              bind:value={workspaceFilter}
-              aria-label="Filter workspace files"
-            />
-            <button type="button" class="pane-btn" title="Refresh files" on:click={loadTree}>⟳</button>
-            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('workspace'); }}>□</button>
-            {#if openWins.length > 1}
-              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('workspace')}>×</button>
-            {/if}
-          </div>
-        </header>
-        <div class="pane-content">
-          {#if workspaceTree.length === 0}
-            <p class="empty">{currentProject}</p>
-          {:else if filteredTree.length === 0}
-            <p class="empty">No matching files.</p>
-          {:else}
-            <ul class="cards">
-              {#each filteredTree as node}
-                <li><strong>{node.name}</strong><span class="tag">{node.kind}</span></li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-      </section>
-    {/if}
-
-    {#if isPaneVisible("github")}
-      <section class="pane glass manage" data-view="repos">
-        <header class="pane-head">
-          <div class="pane-brand">
-            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path fill="currentColor" d={WIN_ICONS["github"]} />
-            </svg>
-            <h1>GitHub repos</h1>
-            <span class="pane-badge">{filteredRepos.length}</span>
-          </div>
-          <div class="pane-actions">
-            <input
-              type="text"
-              class="pane-filter"
-              placeholder="Filter repos…"
-              bind:value={repoFilter}
-              aria-label="Filter repositories"
-            />
-            <button type="button" class="pane-btn" title="Refresh repositories" on:click={refreshRepos}>⟳</button>
-            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('github'); }}>□</button>
-            {#if openWins.length > 1}
-              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('github')}>×</button>
-            {/if}
-          </div>
-        </header>
-        <div class="pane-content">
-          {#if !repoResult.ok}
-            <p class="empty">Could not load repos.</p>
-          {:else if repoResult.items.length === 0}
-            <p class="empty">No repos.</p>
-          {:else if filteredRepos.length === 0}
-            <p class="empty">No matching repos.</p>
-          {:else}
-            <ul class="cards">
-              {#each filteredRepos as repo}
-                <li>
-                  <strong>{repo.name}</strong>
-                  <span class="tag">{repo.visibility}</span>
-                  {#if repo.branch}<span class="tag">{repo.branch}</span>{/if}
-                  {#if repo.worktree}<span class="tag">{repo.worktree}</span>{/if}
-                  {#if repo.commit}<span class="tag">{repo.commit}</span>{/if}
-                  {#if repo.html_url}
-                    <a class="md-a" href={repo.html_url} rel="noopener noreferrer">{repo.html_url}</a>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-      </section>
-    {/if}
-
-    {#if isPaneVisible("users")}
-      <section class="pane glass manage" data-view="users">
-        <header class="pane-head">
-          <div class="pane-brand">
-            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path fill="currentColor" d={WIN_ICONS["users"]} />
-            </svg>
-            <h1>Users</h1>
-            <span class="pane-badge">{userResult.items.length}</span>
-          </div>
-          <div class="pane-actions">
-            <button type="button" class="pane-btn" title="Refresh users" on:click={refreshUsers}>⟳</button>
-            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('users'); }}>□</button>
-            {#if openWins.length > 1}
-              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('users')}>×</button>
-            {/if}
-          </div>
-        </header>
-        <div class="pane-content">
-          {#if !userResult.ok}
-            <p class="empty">Could not load users.</p>
-          {:else if userResult.items.length === 0}
-            <p class="empty">No users.</p>
-          {:else}
-            <ul class="cards">
-              {#each userResult.items as user}
-                <li>
-                  <strong>{user.login}</strong>
-                  <span class="tag">{user.role}</span>
-                  <span class="tag">{user.status}</span>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-      </section>
-    {/if}
-
-    {#if isPaneVisible("schedule")}
-      <section class="pane glass manage" data-view="schedule">
-        <header class="pane-head">
-          <div class="pane-brand">
-            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path fill="currentColor" d={WIN_ICONS["schedule"]} />
-            </svg>
-            <h1>Scheduled tasks</h1>
-            <span class="pane-badge">{schedules.length}</span>
-          </div>
-          <div class="pane-actions">
-            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('schedule'); }}>□</button>
-            {#if openWins.length > 1}
-              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('schedule')}>×</button>
-            {/if}
-          </div>
-        </header>
-        <div class="pane-content">
-          <form class="sched-form" on:submit|preventDefault={submitSchedule}>
-            <input bind:value={schedTitle} placeholder="title" />
-            <input bind:value={schedWhen} placeholder="run at" />
-            <input bind:value={schedInterval} placeholder="interval" />
-            <button type="submit" class="key sched-add">Add</button>
-          </form>
-          {#if schedNotice}<p class="empty">{schedNotice}</p>{/if}
-          {#if schedules.length === 0}
-            <p class="empty">No scheduled tasks.</p>
-          {:else}
-            <ul class="cards">
-              {#each schedules as row}
-                <li>
-                  <strong>{row.title}</strong>
-                  <span class="tag">{row.runAt || row.interval}</span>
-                  <button type="button" class="key" on:click={() => dropSchedule(row.id)}>Cancel</button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-      </section>
-    {/if}
-
-    {#if isPaneVisible("settings")}
-      <section class="pane glass manage" data-view="settings">
-        <header class="pane-head">
-          <div class="pane-brand">
-            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path fill="currentColor" d={WIN_ICONS["settings"]} />
-            </svg>
-            <h1>Settings</h1>
-          </div>
-          <div class="pane-actions">
-            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('settings'); }}>□</button>
-            {#if openWins.length > 1}
-              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('settings')}>×</button>
-            {/if}
-          </div>
-        </header>
-        <div class="pane-content">
-          <p class="tag">Theme pack</p>
-          <ul class="cards">
-            {#each PACKS as pack}
-              <li>
-                <button type="button" class:here={packId === pack.id} on:click={() => setPack(pack.id)}>{pack.name}</button>
-              </li>
-            {/each}
-          </ul>
-          {#if isSysminUser}
-            <p class="tag">System prompt</p>
-            <textarea class="prompt-box" bind:value={systemPrompt} rows="5"></textarea>
-          {/if}
-        </div>
-      </section>
-    {/if}
-
-    {#if isPaneVisible("profile")}
-      <section class="pane glass manage" data-view="profile">
-        <header class="pane-head">
-          <div class="pane-brand">
-            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path fill="currentColor" d={WIN_ICONS["profile"]} />
-            </svg>
-            <h1>Profile</h1>
-          </div>
-          <div class="pane-actions">
-            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('profile'); }}>□</button>
-            {#if openWins.length > 1}
-              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('profile')}>×</button>
-            {/if}
-          </div>
-        </header>
-        <div class="pane-content">
-          <p><strong>{session?.login}</strong></p>
-          <p class="tag">{session?.email || "github"}</p>
-          <p class="tag">{isSysminUser ? "sysmin" : "member"}</p>
-        </div>
-      </section>
-    {/if}
-
-    {#if isPaneVisible("branch")}
-      <section class="pane glass manage" data-view="branch">
-        <header class="pane-head">
-          <div class="pane-brand">
-            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path fill="currentColor" d={WIN_ICONS["branch"]} />
-            </svg>
-            <h1>Branch</h1>
-            {#if branchThreadId}<span class="pane-badge">#{shortId(branchThreadId)}</span>{/if}
-          </div>
-          <div class="pane-actions">
-            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('branch'); }}>□</button>
-            {#if openWins.length > 1}
-              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('branch')}>×</button>
-            {/if}
-          </div>
-        </header>
-        <div class="pane-content">
-          {#if !branchThreadId}
-            <p class="empty">Right-click a message to branch off.</p>
-          {:else}
-            {#each branchMessages as msg}
-              <article class="bubble {msg.role}">
-                <div class="role">{msg.role}</div>
-                <div class="pad">{msg.content}</div>
-              </article>
-            {/each}
-          {/if}
-        </div>
-      </section>
-    {/if}
-
-    {#if isPaneVisible("chat")}
-      <section class="pane glass chat-pane" data-view="chat">
-        <header class="pane-head">
-          <div class="pane-brand">
-            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path fill="currentColor" d={WIN_ICONS["chat"]} />
-            </svg>
-            <h1>Chat</h1>
-            {#if currentThread}
-              <span class="pane-badge">{currentThread.model}</span>
-            {/if}
-          </div>
-          <nav class="trail">
-            <button type="button" data-ctx="shell" on:click={() => handleCommand("/tree")}>Home</button>
-            {#each trailThreads as segment, i}
-              <span class="sep">/</span>
-              <button
-                type="button"
-                data-ctx="thread"
-                data-id={segment.id}
-                class={segment.id === currentThreadId ? 'here' : ''}
-                on:click={() => openThread(segment.id)}
-              >
-                {threadLabel(segment)}
-                {#if unreadOnTrail(segment) > 0 && segment.id !== currentThreadId}
-                  <i class="badge">{unreadOnTrail(segment)}</i>
-                {/if}
-              </button>
-              {#if i === trailThreads.length - 1 && currentThread?.parent_id}
-                <span class="child">child</span>
-              {/if}
-            {/each}
-          </nav>
-          <div class="pane-actions">
-            <button type="button" class="pane-btn" title="Toggle thread tree" on:click={() => (showTree = !showTree)}>☷</button>
-            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('chat'); }}>□</button>
-            {#if openWins.length > 1}
-              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('chat')}>×</button>
-            {/if}
-          </div>
-        </header>
-
-        <div class="body">
-          {#if showTree}
-            <aside class="tree">
-              <div class="tree-h">thread tree</div>
-              {#each treeChildren(null) as root}
-                <button type="button" data-ctx="thread" data-id={root.id} class={root.id === currentThreadId ? 'here' : ''} on:click={() => openThread(root.id)}>
-                  {threadLabel(root)}
-                  {#if unread[root.id]}<i class="badge">{unread[root.id]}</i>{/if}
-                </button>
-                {#each treeChildren(root.id) as child}
-                  <button type="button" data-ctx="thread" data-id={child.id} class="indent {child.id === currentThreadId ? 'here' : ''}" on:click={() => openThread(child.id)}>
-                    {threadLabel(child)} <em>{child.status}</em>
-                  </button>
-                  {#each treeChildren(child.id) as grand}
-                    <button type="button" data-ctx="thread" data-id={grand.id} class="indent2 {grand.id === currentThreadId ? 'here' : ''}" on:click={() => openThread(grand.id)}>
-                      {threadLabel(grand)}
-                    </button>
-                  {/each}
-                {/each}
-              {/each}
-              {#if treeThreads.length === 0}
-                <p class="empty">No threads.</p>
-              {/if}
-            </aside>
-          {/if}
-
-          <section class="lcd" data-ctx="lcd">
-            {#if messages.length === 0}
-              <div class="idle">No thread yet</div>
-            {/if}
-            {#each messages as msg, i}
-              {#if msg.role === "fork"}
-                {@const card = parseFork(msg)}
-                {#if card}
-                  <article class="bubble fork" data-ctx="fork" data-idx={i}>
-                    <div class="role">fork</div>
-                    <div class="fork-row">
-                      <button type="button" class="fork-main" on:click={() => toggleFork(card.child_id)}>
-                        <span class="id">#{shortId(card.child_id)}</span>
-                        <span class="st {card.status}">{card.status}</span>
-                        <div>{card.title}</div>
-                      </button>
-                      <button type="button" class="key" on:click={() => chaseFork(card)}>chase</button>
-                    </div>
-                    {#if expandedForks[card.child_id] || card.status === "done" || card.status === "failed"}
-                      {#if card.result}
-                        <div class="result md">{@html formatMessage(card.result)}</div>
-                      {:else if card.status === "running"}
-                        <p class="muted">running…</p>
-                      {/if}
-                    {/if}
-                  </article>
-                {/if}
-              {:else}
-                <article class="bubble {msg.role}" data-ctx="message" data-idx={i}>
-                  <div class="role">{msg.role}</div>
-                  {#if msg.role === "user"}
-                    <div class="pad">{msg.content}</div>
-                  {:else}
-                    <div class="pad md">{@html formatMessage(msg.content)}</div>
-                  {/if}
-                </article>
-              {/if}
-            {/each}
-          </section>
-        </div>
-
-        <form class="dock glass" data-ctx="composer" on:submit|preventDefault={handleSend}>
-          {#if slashHits.length}
-            <div class="slash-menu" role="listbox" aria-label="Slash commands">
-              {#each slashHits as item, i}
+  <!-- MAIN DASHBOARD CONTENT AREA -->
+  <div class="dash-main">
+    <!-- DASHBOARD TOPBAR -->
+    <header class="chrome dash-topbar">
+      <div class="lead">
+        <h2 class="view-title">{WIN_LABEL[activeWin] || "Cockpit"}</h2>
+        <div class="proj" data-ctx="mode" bind:this={modeRoot}>
+          <button
+            type="button"
+            class="chip proj-key"
+            aria-expanded={showModes}
+            aria-haspopup="listbox"
+            on:click={toggleModes}
+          >
+            <em>mode</em> {currentMode}
+          </button>
+          {#if showModes}
+            <div class="proj-menu glass" role="listbox" aria-label="Modes">
+              {#each VALID_MODES as mode}
                 <button
                   type="button"
                   role="option"
-                  class:here={i === slashIndex}
-                  aria-selected={i === slashIndex}
-                  on:click={() => pickSlash(item)}
+                  aria-selected={mode === currentMode}
+                  class:here={mode === currentMode}
+                  on:click={() => selectMode(mode)}
                 >
-                  <span>{item.cmd}</span>
-                  <span class="tag">{item.hint}</span>
+                  <span class="proj-name">{mode}</span>
                 </button>
               {/each}
             </div>
           {/if}
-          <div class="dock-row">
-            <input
-              type="text"
-              bind:this={composerEl}
-              bind:value={composerInput}
-              placeholder="message or /fork /task /theme /plan…"
-              autocomplete="off"
-              on:keydown={onComposerKey}
-            />
-            <button type="submit" class="send">SEND</button>
+        </div>
+
+        <div class="proj" data-ctx="model" bind:this={modelRoot}>
+          <button
+            type="button"
+            class="chip proj-key truncate"
+            aria-expanded={showModels}
+            aria-haspopup="listbox"
+            on:click={toggleModels}
+          >
+            <em>model</em> {currentModel}
+          </button>
+          {#if showModels}
+            <div class="proj-menu glass" role="listbox" aria-label="Models">
+              {#each MODEL_CHOICES as model}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={model === currentModel}
+                  class:here={model === currentModel}
+                  on:click={() => selectModel(model)}
+                >
+                  <span class="proj-name">{model}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+
+      <div data-tauri-drag-region class="drag"></div>
+
+      <div class="topbar-actions">
+        {#if activeWin !== "chat"}
+          <button
+            type="button"
+            class="split-toggle-btn"
+            class:here={splitOpen}
+            title={splitOpen ? "Close split chat pane" : "Split with Chat side-by-side"}
+            on:click={toggleSplit}
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
+              <line x1="8" y1="3" x2="8" y2="13" stroke="currentColor" stroke-width="1.2" />
+            </svg>
+            <span class="split-label">{splitOpen ? "Single" : "Split Chat"}</span>
+          </button>
+        {/if}
+
+        <div class="win">
+          <button type="button" on:click={() => windowAction("min")} aria-label="Minimize">–</button>
+          <button type="button" on:click={() => windowAction("max")} aria-label="Maximize">□</button>
+          <button type="button" class="close" on:click={() => windowAction("close")} aria-label="Close">×</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- DASHBOARD VIEWPORT -->
+    <main class="dash-viewport" class:has-split={splitOpen && activeWin !== "chat"}>
+      {#if activeWin !== "chat"}
+        <section class="dash-page active-page" data-view={activeWin}>
+          {#if activeWin === "workspace"}
+            <header class="pane-head">
+              <div class="pane-brand">
+                <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d={WIN_ICONS["workspace"]} />
+                </svg>
+                <h1>Workspace</h1>
+                <span class="pane-badge">{filteredTree.length}</span>
+              </div>
+              <div class="pane-actions">
+                <input
+                  type="text"
+                  class="pane-filter"
+                  placeholder="Filter files…"
+                  bind:value={workspaceFilter}
+                  aria-label="Filter workspace files"
+                />
+                <button type="button" class="pane-btn" title="Refresh files" on:click={loadTree}>⟳</button>
+              </div>
+            </header>
+            <div class="pane-content">
+              {#if workspaceTree.length === 0}
+                <p class="empty">{currentProject}</p>
+              {:else if filteredTree.length === 0}
+                <p class="empty">No matching files.</p>
+              {:else}
+                <ul class="cards">
+                  {#each filteredTree as node}
+                    <li><strong>{node.name}</strong><span class="tag">{node.kind}</span></li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+
+          {:else if activeWin === "github"}
+            <header class="pane-head">
+              <div class="pane-brand">
+                <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d={WIN_ICONS["github"]} />
+                </svg>
+                <h1>GitHub repos</h1>
+                <span class="pane-badge">{filteredRepos.length}</span>
+              </div>
+              <div class="pane-actions">
+                <input
+                  type="text"
+                  class="pane-filter"
+                  placeholder="Filter repos…"
+                  bind:value={repoFilter}
+                  aria-label="Filter repositories"
+                />
+                <button type="button" class="pane-btn" title="Refresh repositories" on:click={refreshRepos}>⟳</button>
+              </div>
+            </header>
+            <div class="pane-content">
+              {#if !repoResult.ok}
+                <p class="empty">Could not load repos.</p>
+              {:else if repoResult.items.length === 0}
+                <p class="empty">No repos.</p>
+              {:else if filteredRepos.length === 0}
+                <p class="empty">No matching repos.</p>
+              {:else}
+                <ul class="cards">
+                  {#each filteredRepos as repo}
+                    <li>
+                      <strong>{repo.name}</strong>
+                      <span class="tag">{repo.visibility}</span>
+                      {#if repo.branch}<span class="tag">{repo.branch}</span>{/if}
+                      {#if repo.worktree}<span class="tag">{repo.worktree}</span>{/if}
+                      {#if repo.commit}<span class="tag">{repo.commit}</span>{/if}
+                      {#if repo.html_url}
+                        <a class="md-a" href={repo.html_url} rel="noopener noreferrer">{repo.html_url}</a>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+
+          {:else if activeWin === "users"}
+            <header class="pane-head">
+              <div class="pane-brand">
+                <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d={WIN_ICONS["users"]} />
+                </svg>
+                <h1>Users</h1>
+                <span class="pane-badge">{userResult.items.length}</span>
+              </div>
+              <div class="pane-actions">
+                <button type="button" class="pane-btn" title="Refresh users" on:click={refreshUsers}>⟳</button>
+              </div>
+            </header>
+            <div class="pane-content">
+              {#if !userResult.ok}
+                <p class="empty">Could not load users.</p>
+              {:else if userResult.items.length === 0}
+                <p class="empty">No users.</p>
+              {:else}
+                <ul class="cards">
+                  {#each userResult.items as user}
+                    <li>
+                      <strong>{user.login}</strong>
+                      <span class="tag">{user.role}</span>
+                      <span class="tag">{user.status}</span>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+
+          {:else if activeWin === "schedule"}
+            <header class="pane-head">
+              <div class="pane-brand">
+                <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d={WIN_ICONS["schedule"]} />
+                </svg>
+                <h1>Scheduled tasks</h1>
+                <span class="pane-badge">{schedules.length}</span>
+              </div>
+            </header>
+            <div class="pane-content">
+              <form class="sched-form" on:submit|preventDefault={submitSchedule}>
+                <input bind:value={schedTitle} placeholder="title" />
+                <input bind:value={schedWhen} placeholder="run at" />
+                <input bind:value={schedInterval} placeholder="interval" />
+                <button type="submit" class="key sched-add">Add</button>
+              </form>
+              {#if schedNotice}<p class="empty">{schedNotice}</p>{/if}
+              {#if schedules.length === 0}
+                <p class="empty">No scheduled tasks.</p>
+              {:else}
+                <ul class="cards">
+                  {#each schedules as row}
+                    <li>
+                      <strong>{row.title}</strong>
+                      <span class="tag">{row.runAt || row.interval}</span>
+                      <button type="button" class="key" on:click={() => dropSchedule(row.id)}>Cancel</button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+
+          {:else if activeWin === "settings"}
+            <header class="pane-head">
+              <div class="pane-brand">
+                <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d={WIN_ICONS["settings"]} />
+                </svg>
+                <h1>Settings</h1>
+              </div>
+            </header>
+            <div class="pane-content">
+              <p class="tag">Theme pack</p>
+              <ul class="cards">
+                {#each PACKS as pack}
+                  <li>
+                    <button type="button" class:here={packId === pack.id} on:click={() => setPack(pack.id)}>{pack.name}</button>
+                  </li>
+                {/each}
+              </ul>
+              {#if isSysminUser}
+                <p class="tag">System prompt</p>
+                <textarea class="prompt-box" bind:value={systemPrompt} rows="5"></textarea>
+              {/if}
+            </div>
+
+          {:else if activeWin === "profile"}
+            <header class="pane-head">
+              <div class="pane-brand">
+                <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d={WIN_ICONS["profile"]} />
+                </svg>
+                <h1>Profile</h1>
+              </div>
+            </header>
+            <div class="pane-content">
+              <p><strong>{session?.login}</strong></p>
+              <p class="tag">{session?.email || "github"}</p>
+              <p class="tag">{isSysminUser ? "sysmin" : "member"}</p>
+            </div>
+
+          {:else if activeWin === "branch"}
+            <header class="pane-head">
+              <div class="pane-brand">
+                <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d={WIN_ICONS["branch"]} />
+                </svg>
+                <h1>Branch</h1>
+                {#if branchThreadId}<span class="pane-badge">#{shortId(branchThreadId)}</span>{/if}
+              </div>
+            </header>
+            <div class="pane-content">
+              {#if !branchThreadId}
+                <p class="empty">Right-click a message to branch off.</p>
+              {:else}
+                {#each branchMessages as msg}
+                  <article class="bubble {msg.role}">
+                    <div class="role">{msg.role}</div>
+                    <div class="pad">{msg.content}</div>
+                  </article>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- Chat View -->
+      {#if activeWin === "chat" || splitOpen}
+        <section class="dash-page chat-page" data-view="chat">
+          <header class="pane-head chat-head">
+            <div class="pane-brand">
+              <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path fill="currentColor" d={WIN_ICONS["chat"]} />
+              </svg>
+              <h1>Chat</h1>
+              {#if currentThread}
+                <span class="pane-badge">{currentThread.model}</span>
+              {/if}
+            </div>
+            <nav class="trail">
+              <button type="button" data-ctx="shell" on:click={() => handleCommand("/tree")}>Home</button>
+              {#each trailThreads as segment, i}
+                <span class="sep">/</span>
+                <button
+                  type="button"
+                  data-ctx="thread"
+                  data-id={segment.id}
+                  class={segment.id === currentThreadId ? 'here' : ''}
+                  on:click={() => openThread(segment.id)}
+                >
+                  {threadLabel(segment)}
+                  {#if unreadOnTrail(segment) > 0 && segment.id !== currentThreadId}
+                    <i class="badge">{unreadOnTrail(segment)}</i>
+                  {/if}
+                </button>
+                {#if i === trailThreads.length - 1 && currentThread?.parent_id}
+                  <span class="child">child</span>
+                {/if}
+              {/each}
+            </nav>
+            <div class="pane-actions">
+              <button type="button" class="pane-btn" title="Toggle thread tree" on:click={() => (showTree = !showTree)}>☷</button>
+            </div>
+          </header>
+
+          <div class="body">
+            {#if showTree}
+              <aside class="tree">
+                <div class="tree-h">thread tree</div>
+                {#each treeChildren(null) as root}
+                  <button type="button" data-ctx="thread" data-id={root.id} class={root.id === currentThreadId ? 'here' : ''} on:click={() => openThread(root.id)}>
+                    {threadLabel(root)}
+                    {#if unread[root.id]}<i class="badge">{unread[root.id]}</i>{/if}
+                  </button>
+                  {#each treeChildren(root.id) as child}
+                    <button type="button" data-ctx="thread" data-id={child.id} class="indent {child.id === currentThreadId ? 'here' : ''}" on:click={() => openThread(child.id)}>
+                      {threadLabel(child)} <em>{child.status}</em>
+                    </button>
+                    {#each treeChildren(child.id) as grand}
+                      <button type="button" data-ctx="thread" data-id={grand.id} class="indent2 {grand.id === currentThreadId ? 'here' : ''}" on:click={() => openThread(grand.id)}>
+                        {threadLabel(grand)}
+                      </button>
+                    {/each}
+                  {/each}
+                {/each}
+                {#if treeThreads.length === 0}
+                  <p class="empty">No threads.</p>
+                {/if}
+              </aside>
+            {/if}
+
+            <section class="lcd" data-ctx="lcd">
+              {#if messages.length === 0}
+                <div class="idle">No thread yet</div>
+              {/if}
+              {#each messages as msg, i}
+                {#if msg.role === "fork"}
+                  {@const card = parseFork(msg)}
+                  {#if card}
+                    <article class="bubble fork" data-ctx="fork" data-idx={i}>
+                      <div class="role">fork</div>
+                      <div class="fork-row">
+                        <button type="button" class="fork-main" on:click={() => toggleFork(card.child_id)}>
+                          <span class="id">#{shortId(card.child_id)}</span>
+                          <span class="st {card.status}">{card.status}</span>
+                          <div>{card.title}</div>
+                        </button>
+                        <button type="button" class="key" on:click={() => chaseFork(card)}>chase</button>
+                      </div>
+                      {#if expandedForks[card.child_id] || card.status === "done" || card.status === "failed"}
+                        {#if card.result}
+                          <div class="result md">{@html formatMessage(card.result)}</div>
+                        {:else if card.status === "running"}
+                          <p class="muted">running…</p>
+                        {/if}
+                      {/if}
+                    </article>
+                  {/if}
+                {:else}
+                  <article class="bubble {msg.role}" data-ctx="message" data-idx={i}>
+                    <div class="role">{msg.role}</div>
+                    {#if msg.role === "user"}
+                      <div class="pad">{msg.content}</div>
+                    {:else}
+                      <div class="pad md">{@html formatMessage(msg.content)}</div>
+                    {/if}
+                  </article>
+                {/if}
+              {/each}
+            </section>
           </div>
-        </form>
-      </section>
-    {/if}
-  </main>
+
+          <form class="dock glass" data-ctx="composer" on:submit|preventDefault={handleSend}>
+            {#if slashHits.length}
+              <div class="slash-menu" role="listbox" aria-label="Slash commands">
+                {#each slashHits as item, i}
+                  <button
+                    type="button"
+                    role="option"
+                    class:here={i === slashIndex}
+                    aria-selected={i === slashIndex}
+                    on:click={() => pickSlash(item)}
+                  >
+                    <span>{item.cmd}</span>
+                    <span class="tag">{item.hint}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+            <div class="dock-row">
+              <input
+                type="text"
+                bind:this={composerEl}
+                bind:value={composerInput}
+                placeholder="message or /fork /task /theme /plan…"
+                autocomplete="off"
+                on:keydown={onComposerKey}
+              />
+              <button type="submit" class="send">SEND</button>
+            </div>
+          </form>
+        </section>
+      {/if}
+    </main>
+  </div>
 
   {#if ctxMenu}
     <div
@@ -2118,35 +2002,30 @@
     height: 100dvh;
     min-height: 100dvh;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     overflow: hidden;
     color: var(--ink);
+    background: #06070a;
   }
-  .chrome {
+  .dash-sidebar {
+    width: 250px;
+    min-width: 250px;
+    max-width: 250px;
+    height: 100%;
     display: flex;
-    align-items: center;
-    flex-shrink: 0;
-    min-height: 72px;
-    padding: 0 8px 0 40px;
-    gap: 24px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex-direction: column;
     background: #080a0d;
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
     user-select: none;
+    z-index: 5;
   }
-  .lead {
+  .sidebar-top {
+    padding: 20px 16px 16px;
     display: flex;
-    align-items: center;
-    gap: 28px;
-    padding: 18px 0;
-    font-size: 13px;
-    min-width: 0;
-  }
-  .drag {
-    flex: 1;
-    min-width: 32px;
-    align-self: stretch;
+    flex-direction: column;
+    gap: 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
   .brand {
     display: flex;
@@ -2155,11 +2034,22 @@
     color: var(--ink);
     flex-shrink: 0;
   }
+  .brand-hex {
+    width: 38px;
+    height: 42px;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+  }
   .brand-icon {
     display: block;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
+    width: 100%;
+    height: 100%;
     object-fit: cover;
     background: #000;
   }
@@ -2179,6 +2069,153 @@
     letter-spacing: 0.18em;
     color: var(--muted);
     text-transform: lowercase;
+  }
+  .sidebar-proj {
+    position: relative;
+    width: 100%;
+  }
+  .sidebar-proj .proj-key {
+    width: 100%;
+    max-width: 100%;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    padding: 8px 12px;
+    border-radius: 8px;
+  }
+  .proj-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dash-nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .nav-section-title {
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    padding: 4px 10px 8px;
+    text-transform: uppercase;
+  }
+  .dash-nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    text-align: left;
+  }
+  .dash-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #f8fafc;
+  }
+  .dash-nav-btn.active {
+    background: #11151f;
+    color: #fff;
+    font-weight: 600;
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+  .nav-icon {
+    flex-shrink: 0;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+  .dash-nav-btn.active .nav-icon {
+    opacity: 1;
+    color: #fff;
+  }
+  .nav-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nav-count {
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--muted);
+    padding: 1px 6px;
+    border-radius: 99px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .dash-nav-btn.active .nav-count {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+  }
+  .sidebar-footer {
+    padding: 14px 14px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: #07090d;
+  }
+  .sidebar-footer .meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0;
+  }
+  .sidebar-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+  }
+  .user-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: #1b202c;
+    color: #f1f5f9;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .user-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.1;
+  }
+  .user-login {
+    font-size: 12px;
+    font-weight: 500;
+    color: #f1f5f9;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .user-badge {
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
   .proj { position: relative; }
   .proj-key {
@@ -2283,209 +2320,136 @@
   .win button:hover { background: var(--panel); color: var(--ink); }
   .win .close:hover { background: var(--hot); color: var(--hot-ink); }
 
-  /* Tab Strip */
-  .tab-strip {
+  /* Main Dashboard Area & Topbar */
+  .dash-main {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    background: #06070a;
+  }
+  .dash-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    height: 56px;
+    min-height: 56px;
+    padding: 0 16px 0 24px;
+    gap: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #080a0d;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    user-select: none;
+    z-index: 4;
+  }
+  .dash-topbar .lead {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0;
+    font-size: 13px;
+    min-width: 0;
+  }
+  .view-title {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #f8fafc;
+    margin: 0;
+    white-space: nowrap;
+  }
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .split-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .split-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+  .split-toggle-btn.here {
+    background: #181d26;
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+  .split-label {
+    white-space: nowrap;
+  }
+
+  /* Viewport & Pages */
+  .dash-viewport {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+    padding: 14px;
+    gap: 14px;
+    background: #06070a;
+  }
+  .dash-viewport.has-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .dash-page {
+    flex: 1;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #080a0e;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .active-page {
+    z-index: 1;
+  }
+  .chat-page {
+    z-index: 2;
+  }
+  .chat-page .body {
+    flex: 1;
+    min-height: 0;
+    padding: 16px;
+    display: flex;
+    gap: 16px;
+    overflow: hidden;
+  }
+  .chat-page .chat-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 8px 16px;
-    background: #080a0d;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 12px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(10, 13, 18, 0.85);
+    backdrop-filter: blur(12px);
     flex-shrink: 0;
-    user-select: none;
-    overflow-x: auto;
-  }
-  .tabs-list {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    overflow-x: auto;
-  }
-  .tab-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 14px;
-    border-radius: 9px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    color: var(--muted);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-    white-space: nowrap;
-    user-select: none;
-  }
-  .tab-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--ink);
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-  .tab-item.here {
-    background: #11141c;
-    color: #f1f5f9;
-    font-weight: 600;
-    border-color: rgba(255, 255, 255, 0.16);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  }
-  .tab-icon {
-    flex-shrink: 0;
-    opacity: 0.75;
-  }
-  .tab-item.here .tab-icon {
-    opacity: 1;
-    color: #fff;
-  }
-  .tab-label {
-    min-width: 0;
-  }
-  .tab-close {
-    background: none;
-    border: 0;
-    color: var(--muted);
-    font-size: 14px;
-    line-height: 1;
-    padding: 2px 4px;
-    border-radius: 4px;
-    margin-left: 2px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0.6;
-    transition: opacity 0.15s, background 0.15s, color 0.15s;
-  }
-  .tab-close:hover {
-    opacity: 1;
-    color: #fff;
-    background: rgba(255, 255, 255, 0.12);
-  }
-  .tab-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-  .add-tab-wrap {
-    position: relative;
-  }
-  .tab-action-btn {
-    width: 32px;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: var(--muted);
-    font-size: 16px;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-  }
-  .tab-action-btn:hover, .tab-action-btn.open {
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
-    border-color: rgba(255, 255, 255, 0.15);
-  }
-  .add-tab-menu {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
-    z-index: 10;
-    min-width: 200px;
-    background: #0b0e14;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 12px;
-    padding: 6px;
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
-  }
-  .menu-head {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    padding: 6px 10px;
-  }
-  .menu-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    text-align: left;
-    padding: 8px 10px;
-    border-radius: 8px;
-    border: 0;
-    background: none;
-    color: var(--ink);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .menu-item:hover {
-    background: rgba(255, 255, 255, 0.08);
-  }
-  .menu-badge {
-    margin-left: auto;
-    font-size: 10px;
-    text-transform: uppercase;
-    color: var(--muted);
-    background: rgba(255, 255, 255, 0.06);
-    padding: 2px 6px;
-    border-radius: 99px;
-  }
-  .layout-switch {
-    display: inline-flex;
-    align-items: center;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    padding: 2px;
-    gap: 2px;
-  }
-  .layout-btn {
-    width: 28px;
-    height: 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
-    border: 0;
-    background: none;
-    color: var(--muted);
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-  }
-  .layout-btn:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.08);
-  }
-  .layout-btn.here {
-    background: #181d26;
-    color: #fff;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-  }
-  .all-apps-toggle {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: var(--muted);
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-  }
-  .all-apps-toggle:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
-  }
-  .all-apps-toggle.here {
-    background: #181d26;
-    color: #fff;
-    border-color: rgba(255, 255, 255, 0.16);
   }
 
   .manage {
@@ -2932,71 +2896,6 @@
   }
   .ctx-menu button:disabled { opacity: 0.4; }
   .ctx-mark { color: var(--ink); font-size: 8px; }
-
-  .desk {
-    flex: 1;
-    min-height: 0;
-    padding: 12px;
-    overflow: hidden;
-    gap: 12px;
-  }
-  .desk.mode-tabs {
-    display: flex;
-  }
-  .desk.mode-tabs > .pane {
-    flex: 1;
-    height: 100%;
-    min-width: 0;
-  }
-  .desk.mode-split {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    height: 100%;
-  }
-  .desk.mode-split > .pane {
-    height: 100%;
-    min-width: 0;
-  }
-  .desk.mode-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-    gap: 12px;
-    height: 100%;
-    overflow-y: auto;
-  }
-  .desk.mode-grid > .pane {
-    min-height: 420px;
-  }
-  @media (max-width: 900px) {
-    .desk.mode-split {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  .pane {
-    border-radius: 16px;
-    display: flex;
-    flex-direction: column;
-    background: #090b0e;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    overflow: hidden;
-    position: relative;
-    min-width: 0;
-    min-height: 0;
-  }
-  .chat-pane {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .chat-pane .body {
-    flex: 1;
-    min-height: 0;
-    padding: 16px;
-    display: flex;
-    gap: 16px;
-  }
   .gate {
     position: relative;
     z-index: 2;
@@ -3044,19 +2943,29 @@
     user-select: none;
     pointer-events: none;
   }
-  .gate-hive-hero {
+  .gate-hex-hero {
     position: relative;
     z-index: 1;
-    width: clamp(160px, 24vw, 220px);
-    height: clamp(160px, 24vw, 220px);
-    object-fit: contain;
-    filter: drop-shadow(0 16px 36px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 1px rgba(255, 255, 255, 0.4));
-    user-select: none;
-    pointer-events: none;
+    width: clamp(170px, 25vw, 220px);
+    height: clamp(190px, 28vw, 250px);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    filter: drop-shadow(0 20px 48px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 1px rgba(255, 255, 255, 0.35));
     transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .gate-card:hover .gate-hive-hero {
+  .gate-card:hover .gate-hex-hero {
     transform: scale(1.02);
+  }
+  .gate-hive-hero {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    user-select: none;
+    pointer-events: none;
   }
   .gate-login-btn {
     position: relative;
@@ -3134,13 +3043,6 @@
     font-size: 15px;
     text-align: center;
   }
-  .all-apps-toggle {
-    margin-left: auto;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    opacity: 0.8;
-  }
   .prompt-box {
     width: 100%;
     min-height: 120px;
@@ -3191,9 +3093,9 @@
       max-width: 92vw;
       padding: clamp(48px, 10vw, 96px) clamp(24px, 8vw, 64px);
     }
-    .gate-hive-hero {
+    .gate-hex-hero {
       width: clamp(180px, 30vw, 240px);
-      height: clamp(180px, 30vw, 240px);
+      height: clamp(200px, 34vw, 270px);
     }
     .gate-login-btn {
       min-height: 84px;
@@ -3203,6 +3105,10 @@
     .gate-login-btn .gh-icon {
       width: 36px;
       height: 36px;
+    }
+    .dash-nav-btn {
+      min-height: 48px;
+      font-size: 14px;
     }
     .dock input {
       height: 64px;
@@ -3218,19 +3124,66 @@
       font-size: 13px;
     }
   }
-  @media (max-width: 820px) {
-    .chrome { padding-left: 20px; gap: 12px; min-height: 64px; }
-    .lead { gap: 16px; }
-    .drag { display: none; }
-    .lead > .proj + .proj { display: none; }
-    .meta .led { display: none; }
-    .proj-key { max-width: 38vw; }
-    .stage, .dock, .views { padding-left: 20px; padding-right: 20px; }
-    .stage { padding-top: 20px; gap: 16px; }
-    .lcd { padding: 24px 22px 32px; border-radius: 16px; }
-    .bubble { max-width: 88%; }
+  @media (max-width: 860px) {
+    .dash-sidebar {
+      width: 68px;
+      min-width: 68px;
+      max-width: 68px;
+    }
+    .brand-copy, .nav-text, .nav-count, .nav-section-title, .user-info, .sidebar-proj em, .proj-label {
+      display: none;
+    }
+    .sidebar-top {
+      padding: 16px 8px;
+      align-items: center;
+    }
+    .sidebar-proj .proj-key {
+      padding: 8px;
+      justify-content: center;
+    }
+    .dash-nav {
+      padding: 12px 8px;
+      align-items: center;
+    }
+    .dash-nav-btn {
+      justify-content: center;
+      padding: 10px;
+    }
+    .sidebar-footer {
+      padding: 10px 8px;
+      align-items: center;
+    }
+    .sidebar-footer .meta {
+      flex-direction: column;
+      gap: 8px;
+    }
+    .sidebar-user {
+      justify-content: center;
+      padding: 6px;
+    }
+    .dash-viewport.has-split {
+      grid-template-columns: 1fr;
+    }
+    .dash-topbar {
+      padding: 0 12px 0 16px;
+      gap: 10px;
+    }
+    .lead {
+      gap: 10px;
+    }
+    .proj-key {
+      max-width: 140px;
+    }
+    .lcd {
+      padding: 24px 20px 32px;
+      border-radius: 16px;
+    }
+    .bubble {
+      max-width: 88%;
+    }
   }
   @media (max-width: 520px) {
     .win button:not(.close) { display: none; }
+    .view-title { font-size: 14px; }
   }
 </style>
