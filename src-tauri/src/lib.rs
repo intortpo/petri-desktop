@@ -471,6 +471,122 @@ fn list_projects(state: State<'_, AppState>) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+fn get_current_workspace(state: State<'_, AppState>) -> Result<store::Workspace, String> {
+    let store = state.store.lock().unwrap();
+    store.get_default_workspace().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_db_projects(state: State<'_, AppState>) -> Result<Vec<store::ProjectWithStats>, String> {
+    let store = state.store.lock().unwrap();
+    store.list_db_projects().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_db_project(
+    state: State<'_, AppState>,
+    workspace_id: Option<String>,
+    name: String,
+    slug: Option<String>,
+    description: Option<String>,
+    root_path: String,
+    default_mode: Option<String>,
+    default_model: Option<String>,
+) -> Result<store::Project, String> {
+    let store = state.store.lock().unwrap();
+    let ws_id = workspace_id.unwrap_or_else(|| "ws-default".into());
+    let s = slug.unwrap_or_else(|| name.to_lowercase().replace(' ', "-"));
+    store
+        .create_project(
+            &ws_id,
+            &name,
+            &s,
+            description.as_deref(),
+            &root_path,
+            default_mode.as_deref(),
+            default_model.as_deref(),
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_db_project(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    description: Option<String>,
+    root_path: String,
+    default_mode: String,
+    default_model: String,
+    status: String,
+) -> Result<store::Project, String> {
+    let store = state.store.lock().unwrap();
+    store
+        .update_project(
+            &id,
+            &name,
+            description.as_deref(),
+            &root_path,
+            &default_mode,
+            &default_model,
+            &status,
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn archive_db_project(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    let store = state.store.lock().unwrap();
+    store.archive_project(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_db_project(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    let store = state.store.lock().unwrap();
+    store.delete_project(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_db_users(state: State<'_, AppState>) -> Result<Vec<store::User>, String> {
+    let store = state.store.lock().unwrap();
+    store.list_users().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_db_user(
+    state: State<'_, AppState>,
+    login: String,
+    display_name: String,
+    email: Option<String>,
+    role: Option<String>,
+    status: Option<String>,
+) -> Result<store::User, String> {
+    let store = state.store.lock().unwrap();
+    let r = role.unwrap_or_else(|| "member".into());
+    let s = status.unwrap_or_else(|| "active".into());
+    store
+        .create_user(&login, &display_name, email.as_deref(), &r, &s)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_db_user(
+    state: State<'_, AppState>,
+    id: String,
+    role: String,
+    status: String,
+) -> Result<store::User, String> {
+    let store = state.store.lock().unwrap();
+    store.update_user(&id, &role, &status).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_db_user(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    let store = state.store.lock().unwrap();
+    store.delete_user(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn list_tasks(state: State<'_, AppState>, thread_id: String) -> Result<Vec<store::Task>, String> {
     let store = state.store.lock().unwrap();
     store.list_tasks(&thread_id).map_err(|e| e.to_string())
@@ -893,6 +1009,16 @@ pub fn run() {
             thread_trail,
             find_thread,
             list_projects,
+            get_current_workspace,
+            list_db_projects,
+            create_db_project,
+            update_db_project,
+            archive_db_project,
+            delete_db_project,
+            list_db_users,
+            create_db_user,
+            update_db_user,
+            delete_db_user,
             list_tasks,
             create_task,
             fork_thread,

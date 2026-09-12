@@ -31,3 +31,19 @@ _Avoid_: Cache write, DB commit
 **Sidecar**:
 A managed background Python subprocess running alongside the desktop app to execute EverOS extraction, Markdown indexing, and local semantic search.
 _Avoid_: External microservice, remote daemon
+
+**Workspace**:
+The root environment and team boundary (`Primary Mesh`). Contains projects, team users, and global cluster state.
+_Avoid_: Folder, group
+
+**Project**:
+A high-level software application, repository grouping, or system container (e.g. `Petri Desktop`). Bound to a filesystem root, linked repositories, assigned team members, and default mode/model configurations.
+_Avoid_: Workspace folder, repo mirror
+
+**Hierarchy**:
+The structured ownership chain: `Workspace → Project → Repo & Branch / Worktree → Thread → Task / Fork`.
+_Avoid_: Flat list, loose directories
+
+**User & Role**:
+Identities operating in the mesh governed by Role-Based Access Control (`sysmin`, `admin`, `member`, `viewer`) and status (`active`, `invited`, `suspended`).
+_Avoid_: Anonymous caller, global admin toggle

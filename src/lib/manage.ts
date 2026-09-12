@@ -10,9 +10,41 @@ export type RepoRecord = {
 };
 
 export type UserRecord = {
+  id?: string;
   login: string;
+  display_name?: string;
+  email?: string;
+  avatar_url?: string;
   role: string;
   status: string;
+  created_at?: string;
+  last_active_at?: string;
+};
+
+export type ProjectRecord = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  root_path: string;
+  default_mode: string;
+  default_model: string;
+  status: "active" | "archived";
+  created_at?: string;
+  updated_at?: string;
+  thread_count?: number;
+  member_count?: number;
+  repo_count?: number;
+};
+
+export type WorkspaceRecord = {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  root_path: string;
+  created_at?: string;
 };
 
 export type Schedule = {
@@ -48,9 +80,40 @@ export const FIXTURE_REPOS: unknown[] = [
 ];
 
 export const FIXTURE_USERS: unknown[] = [
-  { login: "hideo", role: "sysmin", status: "active" },
-  { login: "intortpo", role: "sysmin", status: "active" },
-  { login: "agy", role: "member", status: "invited" },
+  { id: "u-hideo", login: "hideo", display_name: "Hideo", role: "sysmin", status: "active" },
+  { id: "u-intortpo", login: "intortpo", display_name: "Intortpo", role: "sysmin", status: "active" },
+  { id: "u-agy", login: "agy", display_name: "Antigravity Agent", role: "member", status: "invited" },
+];
+
+export const FIXTURE_PROJECTS: unknown[] = [
+  {
+    id: "prj-petri",
+    workspace_id: "ws-default",
+    name: "Petri Desktop",
+    slug: "petri-desktop",
+    description: "Petri AI Pair-Programming Cockpit",
+    root_path: "/home/hideo/Documents/GitHub/hideo/deepagents-app",
+    default_mode: "code",
+    default_model: "Gemini 3.1 Pro",
+    status: "active",
+    thread_count: 5,
+    member_count: 3,
+    repo_count: 1,
+  },
+  {
+    id: "prj-hideo",
+    workspace_id: "ws-default",
+    name: "Hideo Labs",
+    slug: "hideo-labs",
+    description: "Core agents framework and mesh nodes",
+    root_path: "/home/hideo/Documents/GitHub/hideo",
+    default_mode: "architect",
+    default_model: "Gemini 3.1 Pro",
+    status: "active",
+    thread_count: 12,
+    member_count: 2,
+    repo_count: 2,
+  },
 ];
 
 function fail<T>(error: string): ListResult<T> {
@@ -116,12 +179,87 @@ export function listUsers(input: unknown): ListResult<UserRecord> {
     const login = str(rec.login) || str(rec.username) || str(rec.name);
     if (!login) continue;
     items.push({
+      id: str(rec.id) || `u-${login}`,
       login,
+      display_name: str(rec.display_name) || login,
+      email: str(rec.email) || undefined,
+      avatar_url: str(rec.avatar_url) || undefined,
       role: str(rec.role) || str(rec.permission) || "member",
       status: str(rec.status) || str(rec.state) || "active",
+      created_at: str(rec.created_at) || undefined,
+      last_active_at: str(rec.last_active_at) || undefined,
     });
   }
   return ok(items);
+}
+
+/** Normalize unknown input into project rows. Never throws. */
+export function listProjects(input: unknown): ListResult<ProjectRecord> {
+  if (input == null) return ok([]);
+  if (!Array.isArray(input)) return fail("invalid project list");
+  const items: ProjectRecord[] = [];
+  for (const row of input) {
+    const rec = asRecord(row);
+    if (!rec) continue;
+    const name = str(rec.name);
+    if (!name) continue;
+    const root_path = str(rec.root_path) || str(rec.project_path) || ".";
+    const slug = str(rec.slug) || name.toLowerCase().replace(/\s+/g, "-");
+    items.push({
+      id: str(rec.id) || `prj-${slug}`,
+      workspace_id: str(rec.workspace_id) || "ws-default",
+      name,
+      slug,
+      description: str(rec.description) || undefined,
+      root_path,
+      default_mode: str(rec.default_mode) || "code",
+      default_model: str(rec.default_model) || "Gemini 3.1 Pro",
+      status: (str(rec.status) === "archived" ? "archived" : "active") as "active" | "archived",
+      created_at: str(rec.created_at) || undefined,
+      updated_at: str(rec.updated_at) || undefined,
+      thread_count: typeof rec.thread_count === "number" ? rec.thread_count : 0,
+      member_count: typeof rec.member_count === "number" ? rec.member_count : 0,
+      repo_count: typeof rec.repo_count === "number" ? rec.repo_count : 0,
+    });
+  }
+  return ok(items);
+}
+
+export function filterUsers(
+  items: UserRecord[],
+  search: string = "",
+  roleFilter: string = "all",
+  statusFilter: string = "all"
+): UserRecord[] {
+  const q = search.trim().toLowerCase();
+  return items.filter((u) => {
+    if (roleFilter !== "all" && u.role !== roleFilter) return false;
+    if (statusFilter !== "all" && u.status !== statusFilter) return false;
+    if (!q) return true;
+    return (
+      u.login.toLowerCase().includes(q) ||
+      (u.display_name && u.display_name.toLowerCase().includes(q)) ||
+      (u.email && u.email.toLowerCase().includes(q))
+    );
+  });
+}
+
+export function filterProjects(
+  items: ProjectRecord[],
+  search: string = "",
+  statusFilter: string = "all"
+): ProjectRecord[] {
+  const q = search.trim().toLowerCase();
+  return items.filter((p) => {
+    if (statusFilter !== "all" && p.status !== statusFilter) return false;
+    if (!q) return true;
+    return (
+      p.name.toLowerCase().includes(q) ||
+      p.slug.toLowerCase().includes(q) ||
+      p.root_path.toLowerCase().includes(q) ||
+      (p.description && p.description.toLowerCase().includes(q))
+    );
+  });
 }
 
 export class ScheduleBook {

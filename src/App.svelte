@@ -45,15 +45,20 @@
     type CtxSpec,
   } from './lib/ctx';
   import {
+    FIXTURE_PROJECTS,
     FIXTURE_REPOS,
     FIXTURE_USERS,
     ScheduleBook,
     cancelSchedule,
     createSchedule,
+    filterProjects,
+    filterUsers,
+    listProjects,
     listRepos,
     listSchedules,
     listUsers,
     type ListResult,
+    type ProjectRecord,
     type RepoRecord,
     type Schedule,
     type UserRecord,
@@ -163,6 +168,47 @@
   let workspaceTree: { name: string; path: string; kind: string }[] = [];
   let repoResult: ListResult<RepoRecord> = listRepos([]);
   let userResult: ListResult<UserRecord> = listUsers([]);
+
+  // Project Management state
+  let dbProjects: ProjectRecord[] = [];
+  let projectSearch = "";
+  let projectStatusFilter = "all";
+  let showNewProjectModal = false;
+  let newProjectName = "";
+  let newProjectKey = "";
+  let newProjectDesc = "";
+  let newProjectPath = "";
+  let newProjectBranch = "main";
+  let projectNotice = "";
+
+  $: filteredDbProjects = filterProjects(dbProjects, projectSearch, projectStatusFilter);
+  $: projectStatusCounts = {
+    total: dbProjects.length,
+    active: dbProjects.filter((p) => p.status === "active").length,
+    archived: dbProjects.filter((p) => p.status === "archived").length,
+  };
+
+  // User Management state
+  let userSearch = "";
+  let userRoleFilter = "all";
+  let userStatusFilter = "all";
+  let showNewUserModal = false;
+  let newUserLogin = "";
+  let newUserName = "";
+  let newUserEmail = "";
+  let newUserRole = "member";
+  let newUserStatus = "active";
+  let userNotice = "";
+
+  $: filteredDbUsers = filterUsers(userResult.items, userSearch, userRoleFilter, userStatusFilter);
+  $: userRoleCounts = {
+    total: userResult.items.length,
+    sysmin: userResult.items.filter((u) => u.role === "sysmin").length,
+    admin: userResult.items.filter((u) => u.role === "admin").length,
+    member: userResult.items.filter((u) => u.role === "member").length,
+    viewer: userResult.items.filter((u) => u.role === "viewer").length,
+  };
+
   let scheduleBook = new ScheduleBook();
   let schedules: Schedule[] = [];
   let schedTitle = "";
@@ -279,7 +325,91 @@
     repoResult = listRepos(FIXTURE_REPOS);
   }
 
+  async function refreshProjects() {
+    try {
+      const rows = await invoke<ProjectRecord[]>("list_db_projects");
+      const res = listProjects(rows);
+      if (res.ok && res.items.length) {
+        dbProjects = res.items;
+      } else {
+        dbProjects = listProjects(FIXTURE_PROJECTS).items;
+      }
+    } catch {
+      dbProjects = listProjects(FIXTURE_PROJECTS).items;
+    }
+  }
+
+  async function handleCreateProject() {
+    if (!newProjectName.trim()) {
+      projectNotice = "Project name is required.";
+      return;
+    }
+    const path = newProjectPath.trim() || currentProject;
+    const key = newProjectKey.trim() || newProjectName.trim().toLowerCase().replace(/\s+/g, "-");
+    try {
+      await invoke("create_db_project", {
+        name: newProjectName.trim(),
+        key,
+        description: newProjectDesc.trim() || null,
+        path,
+        defaultBranch: newProjectBranch.trim() || "main",
+      });
+      projectNotice = "Project created successfully.";
+      showNewProjectModal = false;
+      newProjectName = "";
+      newProjectKey = "";
+      newProjectDesc = "";
+      newProjectPath = "";
+      newProjectBranch = "main";
+      await refreshProjects();
+      await loadProjects();
+    } catch (e) {
+      projectNotice = `Failed to create project: ${e}`;
+    }
+  }
+
+  async function handleArchiveProject(id: string) {
+    try {
+      await invoke("archive_db_project", { id });
+      await refreshProjects();
+    } catch (e) {
+      projectNotice = `Failed to archive project: ${e}`;
+    }
+  }
+
+  async function handleDeleteProject(id: string) {
+    try {
+      await invoke("delete_db_project", { id });
+      await refreshProjects();
+      await loadProjects();
+    } catch (e) {
+      projectNotice = `Failed to delete project: ${e}`;
+    }
+  }
+
+  async function activateDbProject(proj: ProjectRecord) {
+    currentProject = proj.root_path;
+    if (proj.default_mode && isValidMode(proj.default_mode)) {
+      currentMode = proj.default_mode;
+    }
+    if (proj.default_model) {
+      currentModel = proj.default_model;
+    }
+    await loadTree();
+    activateWindow("chat");
+    system(`Switched to project ${proj.name} (${proj.root_path})`);
+  }
+
   async function refreshUsers() {
+    try {
+      const rows = await invoke<UserRecord[]>("list_db_users");
+      const res = listUsers(rows);
+      if (res.ok && res.items.length) {
+        userResult = res;
+        return;
+      }
+    } catch {}
+
     try {
       const me = await githubJson("/user");
       const rec = me && typeof me === "object" ? (me as { login?: string; email?: string }) : {};
@@ -294,6 +424,71 @@
       if (userResult.ok && userResult.items.length) return;
     } catch {}
     userResult = listUsers(FIXTURE_USERS);
+  }
+
+  async function handleCreateUser() {
+    if (!newUserLogin.trim()) {
+      userNotice = "Username / login is required.";
+      return;
+    }
+    try {
+      await invoke("create_db_user", {
+        login: newUserLogin.trim(),
+        displayName: newUserName.trim() || null,
+        email: newUserEmail.trim() || null,
+        role: newUserRole,
+        status: newUserStatus,
+      });
+      userNotice = "User created successfully.";
+      showNewUserModal = false;
+      newUserLogin = "";
+      newUserName = "";
+      newUserEmail = "";
+      newUserRole = "member";
+      newUserStatus = "active";
+      await refreshUsers();
+    } catch (e) {
+      userNotice = `Failed to create user: ${e}`;
+    }
+  }
+
+  async function handleUpdateUserRole(user: UserRecord, role: string) {
+    try {
+      await invoke("update_db_user", {
+        id: user.id || `u-${user.login}`,
+        role,
+        status: user.status,
+      });
+      await refreshUsers();
+    } catch (e) {
+      userNotice = `Failed to update role: ${e}`;
+    }
+  }
+
+  async function handleUpdateUserStatus(user: UserRecord, status: string) {
+    try {
+      await invoke("update_db_user", {
+        id: user.id || `u-${user.login}`,
+        role: user.role,
+        status,
+      });
+      await refreshUsers();
+    } catch (e) {
+      userNotice = `Failed to update status: ${e}`;
+    }
+  }
+
+  async function handleDeleteUser(user: UserRecord) {
+    if (user.role === "sysmin" && userRoleCounts.sysmin <= 1) {
+      userNotice = "Cannot delete the last sysmin user.";
+      return;
+    }
+    try {
+      await invoke("delete_db_user", { id: user.id || `u-${user.login}` });
+      await refreshUsers();
+    } catch (e) {
+      userNotice = `Failed to delete user: ${e}`;
+    }
   }
 
   async function openView(next: typeof view) {
@@ -331,6 +526,8 @@
     themeResolved = applyTheme(themePref, packId);
     restoreSchedules();
     checkStatus();
+    refreshProjects();
+    refreshUsers();
     setupListeners();
     openWins = defaultOpen(isDesktop(window.innerWidth));
 
@@ -527,6 +724,7 @@
     if (!openWins.includes(id)) {
       openWins = [...openWins, id];
     }
+    if (id === "projects") refreshProjects();
     if (id === "repos" as never || id === "github") refreshRepos();
     if (id === "users") refreshUsers();
     if (id === "workspace") loadTree();
@@ -1079,7 +1277,9 @@
         return;
       }
       openWins = ensureWin(openWins, id);
-      if (id === "github") await openView("repos");
+      activeWin = id;
+      if (id === "projects") await refreshProjects();
+      else if (id === "github") await openView("repos");
       else if (id === "users") await openView("users");
       else if (id === "schedule") await openView("schedule");
       else if (id === "workspace") await loadTree();
@@ -1479,6 +1679,8 @@
           <span class="nav-text">{WIN_LABEL[id]}</span>
           {#if id === "github" && repoResult.items.length > 0}
             <span class="nav-count">{repoResult.items.length}</span>
+          {:else if id === "projects" && dbProjects.length > 0}
+            <span class="nav-count">{dbProjects.length}</span>
           {:else if id === "workspace" && workspaceTree.length > 0}
             <span class="nav-count">{workspaceTree.length}</span>
           {:else if id === "schedule" && schedules.length > 0}
@@ -1601,7 +1803,175 @@
     <main class="dash-viewport" class:has-split={splitOpen && activeWin !== "chat"}>
       {#if activeWin !== "chat"}
         <section class="dash-page active-page" data-view={activeWin}>
-          {#if activeWin === "workspace"}
+          {#if activeWin === "projects"}
+            <header class="pane-head">
+              <div class="pane-brand">
+                <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d={WIN_ICONS["projects"]} />
+                </svg>
+                <h1>Projects</h1>
+                <span class="pane-badge">{dbProjects.length}</span>
+              </div>
+              <div class="pane-actions">
+                <input
+                  type="text"
+                  class="pane-filter"
+                  placeholder="Filter projects…"
+                  bind:value={projectSearch}
+                  aria-label="Filter projects"
+                />
+                <select class="pane-select" bind:value={projectStatusFilter} aria-label="Project status filter">
+                  <option value="all">All statuses</option>
+                  <option value="active">Active</option>
+                  <option value="archived">Archived</option>
+                </select>
+                <button type="button" class="key action-btn" on:click={() => (showNewProjectModal = true)}>+ New Project</button>
+                <button type="button" class="pane-btn" title="Refresh projects" on:click={refreshProjects}>⟳</button>
+              </div>
+            </header>
+            <div class="pane-content">
+              <!-- KPI Stats Bar -->
+              <div class="kpi-bar">
+                <div class="kpi-item">
+                  <span class="kpi-label">TOTAL PROJECTS</span>
+                  <span class="kpi-val">{projectStatusCounts.total}</span>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label">ACTIVE</span>
+                  <span class="kpi-val text-active">{projectStatusCounts.active}</span>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label">ARCHIVED</span>
+                  <span class="kpi-val">{projectStatusCounts.archived}</span>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label">WORKSPACE</span>
+                  <span class="kpi-val mono-val">Primary Mesh</span>
+                </div>
+              </div>
+
+              {#if projectNotice}
+                <div class="notice-bar">{projectNotice}</div>
+              {/if}
+
+              <!-- Create Project Drawer / Modal -->
+              {#if showNewProjectModal}
+                <div class="modal-card">
+                  <div class="modal-head">
+                    <h3>Create New Project</h3>
+                    <button type="button" class="pane-btn close" on:click={() => (showNewProjectModal = false)}>✕</button>
+                  </div>
+                  <form class="modal-form" on:submit|preventDefault={handleCreateProject}>
+                    <div class="form-row">
+                      <label>
+                        <span>Project Name *</span>
+                        <input type="text" bind:value={newProjectName} placeholder="e.g. Mobile Client" required />
+                      </label>
+                      <label>
+                        <span>Key / Slug</span>
+                        <input type="text" bind:value={newProjectKey} placeholder="e.g. mobile-client" />
+                      </label>
+                    </div>
+                    <label>
+                      <span>Description</span>
+                      <input type="text" bind:value={newProjectDesc} placeholder="Short overview of this project" />
+                    </label>
+                    <div class="form-row">
+                      <label>
+                        <span>Root Path</span>
+                        <input type="text" bind:value={newProjectPath} placeholder={currentProject} />
+                      </label>
+                      <label>
+                        <span>Default Branch</span>
+                        <input type="text" bind:value={newProjectBranch} placeholder="main" />
+                      </label>
+                    </div>
+                    <div class="modal-foot">
+                      <button type="button" class="key btn-secondary" on:click={() => (showNewProjectModal = false)}>Cancel</button>
+                      <button type="submit" class="key btn-primary">Create Project</button>
+                    </div>
+                  </form>
+                </div>
+              {/if}
+
+              {#if dbProjects.length === 0}
+                <p class="empty">No projects found. Create a project to begin.</p>
+              {:else if filteredDbProjects.length === 0}
+                <p class="empty">No matching projects.</p>
+              {:else}
+                <div class="project-grid">
+                  {#each filteredDbProjects as proj}
+                    <div class="project-card" class:is-active={proj.root_path === currentProject}>
+                      <div class="project-card-head">
+                        <div class="project-title-row">
+                          <span class="project-name">{proj.name}</span>
+                          <span class="project-key">[{proj.slug}]</span>
+                          {#if proj.root_path === currentProject}
+                            <span class="badge-current">CURRENT</span>
+                          {/if}
+                        </div>
+                        <span class="tag tag-{proj.status}">{proj.status}</span>
+                      </div>
+
+                      <p class="project-desc">{proj.description || "No description provided."}</p>
+
+                      <div class="project-path-row">
+                        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="currentColor">
+                          <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                        </svg>
+                        <code class="project-path" title={proj.root_path}>{proj.root_path}</code>
+                      </div>
+
+                      <div class="project-metrics">
+                        <span class="metric-pill" title="Connected Repositories">
+                          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="currentColor">
+                            <path d="M6 2a3 3 0 0 0-3 3v14a3 3 0 0 0 5.83 1H16a3 3 0 0 0 3-3v-4.17A3 3 0 0 0 21 10a3 3 0 0 0-3-3 3 3 0 0 0-2 2.83V14H8.83A3 3 0 0 0 6 12V5a3 3 0 0 0-3-3h3zm0 18a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm12-10a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+                          </svg>
+                          {proj.repo_count || 1} repos
+                        </span>
+                        <span class="metric-pill" title="Active Threads">
+                          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="currentColor">
+                            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
+                          </svg>
+                          {proj.thread_count || 0} threads
+                        </span>
+                        <span class="metric-pill" title="Project Members">
+                          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="currentColor">
+                            <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                          </svg>
+                          {proj.member_count || 1} members
+                        </span>
+                        <span class="metric-pill mode-pill">mode: {proj.default_mode}</span>
+                      </div>
+
+                      <div class="project-actions">
+                        {#if proj.root_path !== currentProject}
+                          <button type="button" class="key action-btn" on:click={() => activateDbProject(proj)}>
+                            Activate
+                          </button>
+                        {:else}
+                          <span class="key action-active">Active</span>
+                        {/if}
+                        {#if proj.status === "active"}
+                          <button type="button" class="key-subtle" on:click={() => handleArchiveProject(proj.id)}>
+                            Archive
+                          </button>
+                        {:else}
+                          <button type="button" class="key-subtle" on:click={() => handleArchiveProject(proj.id)}>
+                            Restore
+                          </button>
+                        {/if}
+                        <button type="button" class="key-danger" title="Delete project" on:click={() => handleDeleteProject(proj.id)}>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+          {:else if activeWin === "workspace"}
             <header class="pane-head">
               <div class="pane-brand">
                 <svg class="pane-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -1690,21 +2060,162 @@
                 <span class="pane-badge">{userResult.items.length}</span>
               </div>
               <div class="pane-actions">
+                <input
+                  type="text"
+                  class="pane-filter"
+                  placeholder="Filter users…"
+                  bind:value={userSearch}
+                  aria-label="Filter users"
+                />
+                <select class="pane-select" bind:value={userRoleFilter} aria-label="User role filter">
+                  <option value="all">All roles</option>
+                  <option value="sysmin">Sysmin</option>
+                  <option value="admin">Admin</option>
+                  <option value="member">Member</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+                <select class="pane-select" bind:value={userStatusFilter} aria-label="User status filter">
+                  <option value="all">All statuses</option>
+                  <option value="active">Active</option>
+                  <option value="invited">Invited</option>
+                  <option value="suspended">Suspended</option>
+                </select>
+                <button type="button" class="key action-btn" on:click={() => (showNewUserModal = true)}>+ Add User</button>
                 <button type="button" class="pane-btn" title="Refresh users" on:click={refreshUsers}>⟳</button>
               </div>
             </header>
             <div class="pane-content">
+              <!-- KPI Stats Bar -->
+              <div class="kpi-bar">
+                <div class="kpi-item">
+                  <span class="kpi-label">TOTAL USERS</span>
+                  <span class="kpi-val">{userRoleCounts.total}</span>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label">SYSMIN</span>
+                  <span class="kpi-val text-sysmin">{userRoleCounts.sysmin}</span>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label">ADMIN</span>
+                  <span class="kpi-val text-admin">{userRoleCounts.admin}</span>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label">MEMBER</span>
+                  <span class="kpi-val">{userRoleCounts.member}</span>
+                </div>
+                <div class="kpi-item">
+                  <span class="kpi-label">VIEWER</span>
+                  <span class="kpi-val">{userRoleCounts.viewer}</span>
+                </div>
+              </div>
+
+              {#if userNotice}
+                <div class="notice-bar">{userNotice}</div>
+              {/if}
+
+              <!-- Modal / Form for New User -->
+              {#if showNewUserModal}
+                <div class="modal-card">
+                  <div class="modal-head">
+                    <h3>Invite / Add User</h3>
+                    <button type="button" class="pane-btn close" on:click={() => (showNewUserModal = false)}>✕</button>
+                  </div>
+                  <form class="modal-form" on:submit|preventDefault={handleCreateUser}>
+                    <div class="form-row">
+                      <label>
+                        <span>Username / Login *</span>
+                        <input type="text" bind:value={newUserLogin} placeholder="e.g. jdoe" required />
+                      </label>
+                      <label>
+                        <span>Display Name</span>
+                        <input type="text" bind:value={newUserName} placeholder="e.g. Jane Doe" />
+                      </label>
+                    </div>
+                    <label>
+                      <span>Email</span>
+                      <input type="email" bind:value={newUserEmail} placeholder="jane@example.com" />
+                    </label>
+                    <div class="form-row">
+                      <label>
+                        <span>Role</span>
+                        <select bind:value={newUserRole}>
+                          <option value="sysmin">Sysmin (Full Control)</option>
+                          <option value="admin">Admin (Project Ops)</option>
+                          <option value="member">Member (Write & Execute)</option>
+                          <option value="viewer">Viewer (Read-Only)</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Status</span>
+                        <select bind:value={newUserStatus}>
+                          <option value="active">Active</option>
+                          <option value="invited">Invited</option>
+                          <option value="suspended">Suspended</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="modal-foot">
+                      <button type="button" class="key btn-secondary" on:click={() => (showNewUserModal = false)}>Cancel</button>
+                      <button type="submit" class="key btn-primary">Create User</button>
+                    </div>
+                  </form>
+                </div>
+              {/if}
+
               {#if !userResult.ok}
                 <p class="empty">Could not load users.</p>
               {:else if userResult.items.length === 0}
                 <p class="empty">No users.</p>
+              {:else if filteredDbUsers.length === 0}
+                <p class="empty">No matching users.</p>
               {:else}
                 <ul class="cards">
-                  {#each userResult.items as user}
+                  {#each filteredDbUsers as user}
                     <li>
-                      <strong>{user.login}</strong>
+                      <div class="user-row-ident">
+                        <span class="avatar-circle role-{user.role}">{user.login.slice(0, 2).toUpperCase()}</span>
+                        <div class="user-row-text">
+                          <strong>{user.display_name || user.login}</strong>
+                          <span class="user-subtext">@{user.login}{#if user.email} · {user.email}{/if}</span>
+                        </div>
+                      </div>
                       <span class="tag">{user.role}</span>
                       <span class="tag">{user.status}</span>
+                      <div class="user-row-actions">
+                        <select
+                          class="pane-select-inline"
+                          value={user.role}
+                          on:change={(e) => handleUpdateUserRole(user, e.currentTarget.value)}
+                          disabled={!isSysminUser}
+                          aria-label="Change role"
+                        >
+                          <option value="sysmin">sysmin</option>
+                          <option value="admin">admin</option>
+                          <option value="member">member</option>
+                          <option value="viewer">viewer</option>
+                        </select>
+                        <select
+                          class="pane-select-inline"
+                          value={user.status}
+                          on:change={(e) => handleUpdateUserStatus(user, e.currentTarget.value)}
+                          disabled={!isSysminUser}
+                          aria-label="Change status"
+                        >
+                          <option value="active">active</option>
+                          <option value="invited">invited</option>
+                          <option value="suspended">suspended</option>
+                        </select>
+                        {#if isSysminUser}
+                          <button
+                            type="button"
+                            class="del-user-btn"
+                            title="Delete user"
+                            on:click={() => handleDeleteUser(user)}
+                          >
+                            ✕
+                          </button>
+                        {/if}
+                      </div>
                     </li>
                   {/each}
                 </ul>
@@ -2604,6 +3115,389 @@
     font-size: 14px;
   }
   .sched-add { min-width: 88px; height: 48px; }
+
+  /* KPI & Dashboard Metrics Bar */
+  .kpi-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .kpi-item {
+    background: #080a0d;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 10px 16px;
+    display: flex;
+    flex-direction: column;
+    min-width: 120px;
+  }
+  .kpi-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .kpi-val {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-top: 4px;
+  }
+  .kpi-val.text-active { color: #38bdf8; }
+  .kpi-val.text-sysmin { color: #a855f7; }
+  .kpi-val.text-admin { color: #38bdf8; }
+  .kpi-val.mono-val {
+    font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #94a3b8;
+    line-height: 24px;
+  }
+
+  /* Projects Grid */
+  .project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .project-card {
+    background: #0a0c10;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 12px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .project-card:hover {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: #0c0e14;
+  }
+  .project-card.is-active {
+    border-color: rgba(56, 189, 248, 0.4);
+    background: #0b0f17;
+  }
+  .project-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .project-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .project-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #f1f5f9;
+  }
+  .project-key {
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted);
+  }
+  .badge-current {
+    font-size: 10px;
+    font-weight: 700;
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.04em;
+  }
+  .project-desc {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.4;
+  }
+  .project-path-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    overflow: hidden;
+  }
+  .project-path {
+    background: #06070a;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 3px 8px;
+    border-radius: 6px;
+    color: #94a3b8;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .project-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .metric-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+  .mode-pill {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #a855f7;
+    background: rgba(168, 85, 247, 0.08);
+    border-color: rgba(168, 85, 247, 0.18);
+  }
+  .project-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+  }
+
+  /* Modals & Forms */
+  .modal-card {
+    background: #090b0f;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+  }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal-head h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #f1f5f9;
+  }
+  .modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .form-row {
+    display: flex;
+    gap: 12px;
+  }
+  .modal-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .modal-form input,
+  .modal-form select {
+    height: 38px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #06070a;
+    color: #f1f5f9;
+    padding: 0 12px;
+    font-size: 13px;
+    outline: none;
+    font-family: inherit;
+  }
+  .modal-form input:focus,
+  .modal-form select:focus {
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+  .modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  /* Controls & Selects */
+  .pane-select {
+    height: 28px;
+    border-radius: 6px;
+    background: #06070a;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--ink);
+    padding: 0 8px;
+    font-size: 12px;
+    outline: none;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .pane-select-inline {
+    height: 26px;
+    border-radius: 6px;
+    background: #07090d;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--ink);
+    padding: 0 6px;
+    font-size: 12px;
+    outline: none;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .action-btn {
+    height: 28px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .action-active {
+    height: 28px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.6;
+    cursor: default;
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .key-subtle {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .key-subtle:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+  .key-danger {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .key-danger:hover {
+    background: rgba(239, 68, 68, 0.16);
+  }
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--muted);
+    padding: 0 14px;
+    height: 34px;
+    font-size: 13px;
+  }
+  .btn-primary {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    padding: 0 16px;
+    height: 34px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  /* User Row Elements */
+  .user-row-ident {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 180px;
+  }
+  .user-row-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .user-subtext {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .avatar-circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #f1f5f9;
+    flex-shrink: 0;
+  }
+  .avatar-circle.role-sysmin {
+    background: rgba(168, 85, 247, 0.15);
+    border-color: rgba(168, 85, 247, 0.3);
+    color: #c084fc;
+  }
+  .avatar-circle.role-admin {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.3);
+    color: #38bdf8;
+  }
+  .user-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .del-user-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 11px;
+    transition: background 0.15s;
+  }
+  .del-user-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+  }
+  .notice-bar {
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    color: #7dd3fc;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  .tag-sysmin { color: #c084fc; }
+  .tag-admin { color: #38bdf8; }
+  .tag-member { color: #94a3b8; }
+  .tag-viewer { color: #64748b; }
+  .tag-active { color: #34d399; }
+  .tag-invited { color: #a78bfa; }
+  .tag-suspended { color: #f87171; }
 
   .stage {
     flex: 1;

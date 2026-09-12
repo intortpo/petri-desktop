@@ -36,6 +36,74 @@ pub struct Task {
     pub result: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    pub slug: String,
+    pub description: Option<String>,
+    pub root_path: String,
+    pub created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct User {
+    pub id: String,
+    pub login: String,
+    pub display_name: String,
+    pub email: Option<String>,
+    pub avatar_url: Option<String>,
+    pub role: String,
+    pub status: String,
+    pub created_at: String,
+    pub last_active_at: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Project {
+    pub id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub slug: String,
+    pub description: Option<String>,
+    pub root_path: String,
+    pub default_mode: String,
+    pub default_model: String,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ProjectWithStats {
+    #[serde(flatten)]
+    pub project: Project,
+    pub thread_count: usize,
+    pub member_count: usize,
+    pub repo_count: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[allow(dead_code)]
+pub struct ProjectMember {
+    pub project_id: String,
+    pub user_id: String,
+    pub role: String,
+    pub assigned_at: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[allow(dead_code)]
+pub struct ProjectRepo {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub html_url: Option<String>,
+    pub local_path: String,
+    pub branch: String,
+    pub is_primary: bool,
+}
+
 pub struct Store {
     pub conn: Mutex<Connection>,
     #[allow(dead_code)]
@@ -65,6 +133,78 @@ impl Store {
         let _ = conn.pragma_update(None, "busy_timeout", 4000);
         
         // Initialize schema
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS workspaces (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                slug TEXT NOT NULL UNIQUE,
+                description TEXT,
+                root_path TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                login TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                email TEXT,
+                avatar_url TEXT,
+                role TEXT NOT NULL DEFAULT 'member',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                slug TEXT NOT NULL UNIQUE,
+                description TEXT,
+                root_path TEXT NOT NULL,
+                default_mode TEXT NOT NULL DEFAULT 'code',
+                default_model TEXT NOT NULL DEFAULT 'Gemini 3.1 Pro',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS project_members (
+                project_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'contributor',
+                assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (project_id, user_id),
+                FOREIGN KEY (project_id) REFERENCES projects(id),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS project_repos (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                html_url TEXT,
+                local_path TEXT NOT NULL,
+                branch TEXT NOT NULL DEFAULT 'main',
+                is_primary INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            )",
+            [],
+        )?;
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS threads (
                 id TEXT PRIMARY KEY,
@@ -107,6 +247,60 @@ impl Store {
             )",
             [],
         )?;
+
+        // Seed initial workspace and users if empty
+        let ws_count: i64 = conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0)).unwrap_or(0);
+        if ws_count == 0 {
+            let _ = conn.execute(
+                "INSERT INTO workspaces (id, name, slug, description, root_path) VALUES (?1, ?2, ?3, ?4, ?5)",
+                ("ws-default", "Primary Mesh", "primary-mesh", "Default local mesh workspace", "."),
+            );
+        }
+
+        let user_count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap_or(0);
+        if user_count == 0 {
+            let _ = conn.execute(
+                "INSERT INTO users (id, login, display_name, email, role, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                ("u-hideo", "hideo", "Hideo", "intortpo@gmail.com", "sysmin", "active"),
+            );
+            let _ = conn.execute(
+                "INSERT INTO users (id, login, display_name, email, role, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                ("u-intortpo", "intortpo", "Intortpo", "intortpo@gmail.com", "sysmin", "active"),
+            );
+            let _ = conn.execute(
+                "INSERT INTO users (id, login, display_name, role, status) VALUES (?1, ?2, ?3, ?4, ?5)",
+                ("u-agy", "agy", "Antigravity Agent", "member", "active"),
+            );
+        }
+
+        let prj_count: i64 = conn.query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0)).unwrap_or(0);
+        if prj_count == 0 {
+            let cur_dir = std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|| ".".to_string());
+            let _ = conn.execute(
+                "INSERT INTO projects (id, workspace_id, name, slug, description, root_path, default_mode, default_model) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (
+                    "prj-default",
+                    "ws-default",
+                    "Petri Desktop",
+                    "petri-desktop",
+                    "Petri AI Pair-Programming Cockpit",
+                    &cur_dir,
+                    "code",
+                    "Gemini 3.1 Pro",
+                ),
+            );
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?1, ?2, ?3)",
+                ("prj-default", "u-hideo", "lead"),
+            );
+            let _ = conn.execute(
+                "INSERT INTO project_repos (id, project_id, name, html_url, local_path, branch, is_primary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                ("repo-default", "prj-default", "petri-desktop", "https://github.com/intortpo/petri-desktop", &cur_dir, "main", 1),
+            );
+        }
         
         Ok(Store {
             conn: Mutex::new(conn),
@@ -424,6 +618,287 @@ impl Store {
         Ok(projects)
     }
 
+    pub fn list_workspaces(&self) -> Result<Vec<Workspace>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, name, slug, description, root_path, created_at FROM workspaces ORDER BY name")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Workspace {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                slug: r.get(2)?,
+                description: r.get(3)?,
+                root_path: r.get(4)?,
+                created_at: r.get(5)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn get_default_workspace(&self) -> Result<Workspace> {
+        let list = self.list_workspaces()?;
+        if let Some(w) = list.into_iter().next() {
+            Ok(w)
+        } else {
+            let id = "ws-default".to_string();
+            let w = Workspace {
+                id: id.clone(),
+                name: "Primary Mesh".into(),
+                slug: "primary-mesh".into(),
+                description: Some("Default local mesh workspace".into()),
+                root_path: ".".into(),
+                created_at: "".into(),
+            };
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT OR IGNORE INTO workspaces (id, name, slug, description, root_path) VALUES (?1, ?2, ?3, ?4, ?5)",
+                (&w.id, &w.name, &w.slug, &w.description, &w.root_path),
+            )?;
+            Ok(w)
+        }
+    }
+
+    pub fn list_users(&self) -> Result<Vec<User>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, login, display_name, email, avatar_url, role, status, created_at, last_active_at FROM users ORDER BY role = 'sysmin' DESC, login ASC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(User {
+                id: r.get(0)?,
+                login: r.get(1)?,
+                display_name: r.get(2)?,
+                email: r.get(3)?,
+                avatar_url: r.get(4)?,
+                role: r.get(5)?,
+                status: r.get(6)?,
+                created_at: r.get(7)?,
+                last_active_at: r.get(8)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn get_user(&self, id: &str) -> Result<Option<User>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, login, display_name, email, avatar_url, role, status, created_at, last_active_at FROM users WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map([id], |r| {
+            Ok(User {
+                id: r.get(0)?,
+                login: r.get(1)?,
+                display_name: r.get(2)?,
+                email: r.get(3)?,
+                avatar_url: r.get(4)?,
+                role: r.get(5)?,
+                status: r.get(6)?,
+                created_at: r.get(7)?,
+                last_active_at: r.get(8)?,
+            })
+        })?;
+        if let Some(row) = rows.next() {
+            Ok(Some(row?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn create_user(&self, login: &str, display_name: &str, email: Option<&str>, role: &str, status: &str) -> Result<User> {
+        let id = format!("u-{}", &Uuid::new_v4().to_string()[..8]);
+        let user = User {
+            id: id.clone(),
+            login: login.trim().to_lowercase(),
+            display_name: display_name.trim().to_string(),
+            email: email.map(|s| s.trim().to_string()),
+            avatar_url: None,
+            role: role.trim().to_string(),
+            status: status.trim().to_string(),
+            created_at: "".into(),
+            last_active_at: "".into(),
+        };
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO users (id, login, display_name, email, avatar_url, role, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (&user.id, &user.login, &user.display_name, &user.email, &user.avatar_url, &user.role, &user.status),
+        )?;
+        drop(conn);
+        self.get_user(&id).map(|opt| opt.unwrap_or(user))
+    }
+
+    pub fn update_user(&self, id: &str, role: &str, status: &str) -> Result<User> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE users SET role = ?1, status = ?2, last_active_at = CURRENT_TIMESTAMP WHERE id = ?3",
+            (role, status, id),
+        )?;
+        drop(conn);
+        self.get_user(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn delete_user(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let sysmin_count: i64 = conn.query_row("SELECT COUNT(*) FROM users WHERE role = 'sysmin'", [], |r| r.get(0))?;
+        let is_sysmin: bool = conn.query_row("SELECT role = 'sysmin' FROM users WHERE id = ?1", [id], |r| r.get(0)).unwrap_or(false);
+        if is_sysmin && sysmin_count <= 1 {
+            return Ok(false);
+        }
+        let _ = conn.execute("DELETE FROM project_members WHERE user_id = ?1", [id]);
+        let changed = conn.execute("DELETE FROM users WHERE id = ?1", [id])?;
+        Ok(changed > 0)
+    }
+
+    pub fn list_db_projects(&self) -> Result<Vec<ProjectWithStats>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, p.workspace_id, p.name, p.slug, p.description, p.root_path, p.default_mode, p.default_model, p.status, p.created_at, p.updated_at,
+                    (SELECT COUNT(*) FROM threads t WHERE t.project_path = p.root_path) as thread_count,
+                    (SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.id) as member_count,
+                    (SELECT COUNT(*) FROM project_repos pr WHERE pr.project_id = p.id) as repo_count
+             FROM projects p
+             ORDER BY p.status = 'active' DESC, p.updated_at DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let project = Project {
+                id: r.get(0)?,
+                workspace_id: r.get(1)?,
+                name: r.get(2)?,
+                slug: r.get(3)?,
+                description: r.get(4)?,
+                root_path: r.get(5)?,
+                default_mode: r.get(6)?,
+                default_model: r.get(7)?,
+                status: r.get(8)?,
+                created_at: r.get(9)?,
+                updated_at: r.get(10)?,
+            };
+            let thread_count: i64 = r.get(11)?;
+            let member_count: i64 = r.get(12)?;
+            let repo_count: i64 = r.get(13)?;
+            Ok(ProjectWithStats {
+                project,
+                thread_count: thread_count as usize,
+                member_count: member_count as usize,
+                repo_count: repo_count as usize,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn get_project(&self, id: &str) -> Result<Option<Project>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, workspace_id, name, slug, description, root_path, default_mode, default_model, status, created_at, updated_at FROM projects WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map([id], |r| {
+            Ok(Project {
+                id: r.get(0)?,
+                workspace_id: r.get(1)?,
+                name: r.get(2)?,
+                slug: r.get(3)?,
+                description: r.get(4)?,
+                root_path: r.get(5)?,
+                default_mode: r.get(6)?,
+                default_model: r.get(7)?,
+                status: r.get(8)?,
+                created_at: r.get(9)?,
+                updated_at: r.get(10)?,
+            })
+        })?;
+        if let Some(row) = rows.next() {
+            Ok(Some(row?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn create_project(
+        &self,
+        workspace_id: &str,
+        name: &str,
+        slug: &str,
+        description: Option<&str>,
+        root_path: &str,
+        default_mode: Option<&str>,
+        default_model: Option<&str>,
+    ) -> Result<Project> {
+        let id = format!("prj-{}", &Uuid::new_v4().to_string()[..8]);
+        let mode = default_mode.unwrap_or("code");
+        let model = default_model.unwrap_or("Gemini 3.1 Pro");
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO projects (id, workspace_id, name, slug, description, root_path, default_mode, default_model)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (&id, workspace_id, name, slug, &description, root_path, mode, model),
+        )?;
+        drop(conn);
+        self.get_project(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn update_project(
+        &self,
+        id: &str,
+        name: &str,
+        description: Option<&str>,
+        root_path: &str,
+        default_mode: &str,
+        default_model: &str,
+        status: &str,
+    ) -> Result<Project> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE projects SET name = ?1, description = ?2, root_path = ?3, default_mode = ?4, default_model = ?5, status = ?6, updated_at = CURRENT_TIMESTAMP WHERE id = ?7",
+            (name, &description, root_path, default_mode, default_model, status, id),
+        )?;
+        drop(conn);
+        self.get_project(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn archive_project(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let changed = conn.execute("UPDATE projects SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = ?1", [id])?;
+        Ok(changed > 0)
+    }
+
+    pub fn delete_project(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute("DELETE FROM project_members WHERE project_id = ?1", [id]);
+        let _ = conn.execute("DELETE FROM project_repos WHERE project_id = ?1", [id]);
+        let changed = conn.execute("DELETE FROM projects WHERE id = ?1", [id])?;
+        Ok(changed > 0)
+    }
+
+    #[allow(dead_code)]
+    pub fn assign_project_member(&self, project_id: &str, user_id: &str, role: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO project_members (project_id, user_id, role, assigned_at) VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)",
+            (project_id, user_id, role),
+        )?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn remove_project_member(&self, project_id: &str, user_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM project_members WHERE project_id = ?1 AND user_id = ?2",
+            (project_id, user_id),
+        )?;
+        Ok(())
+    }
+
     pub fn update_message_content(&self, message_id: &str, content: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -685,6 +1160,95 @@ mod tests {
         });
         assert!(argv.contains(&"--sandbox".to_string()), "{argv:?}");
         assert!(argv.contains(&"plan".to_string()), "{argv:?}");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn user_management_crud_and_last_sysmin_protection() {
+        let (dir, store) = temp_store();
+
+        // Seeding checks
+        let users = store.list_users().unwrap();
+        assert!(users.len() >= 3);
+        assert!(users.iter().any(|u| u.login == "hideo" && u.role == "sysmin"));
+        assert!(users.iter().any(|u| u.login == "intortpo" && u.role == "sysmin"));
+
+        // Create user
+        let new_user = store
+            .create_user("testuser", "Test User", Some("test@example.com"), "member", "active")
+            .unwrap();
+        assert_eq!(new_user.login, "testuser");
+        assert_eq!(new_user.role, "member");
+
+        // Update user
+        let updated = store.update_user(&new_user.id, "admin", "suspended").unwrap();
+        assert_eq!(updated.role, "admin");
+        assert_eq!(updated.status, "suspended");
+
+        // Delete user
+        let deleted = store.delete_user(&new_user.id).unwrap();
+        assert!(deleted);
+
+        // Try to delete sysmin users:
+        let hideo = users.iter().find(|u| u.login == "hideo").unwrap();
+        let intortpo = users.iter().find(|u| u.login == "intortpo").unwrap();
+
+        // First deletion should succeed because there's 2 sysmins
+        let del1 = store.delete_user(&hideo.id).unwrap();
+        assert!(del1);
+
+        // Second deletion must return false because intortpo is the LAST sysmin
+        let del2 = store.delete_user(&intortpo.id).unwrap();
+        assert!(!del2, "Must prevent deleting the last sysmin");
+        assert!(store.get_user(&intortpo.id).unwrap().is_some());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn project_management_crud_and_relational_stats() {
+        let (dir, store) = temp_store();
+
+        let ws = store.get_default_workspace().unwrap();
+        assert_eq!(ws.id, "ws-default");
+
+        let initial_projects = store.list_db_projects().unwrap();
+        assert!(!initial_projects.is_empty());
+
+        let created = store
+            .create_project(
+                &ws.id,
+                "New Project",
+                "new-project",
+                Some("Test project"),
+                "/tmp/test-project",
+                Some("code"),
+                Some("Gemini 3.1 Pro"),
+            )
+            .unwrap();
+        assert_eq!(created.name, "New Project");
+        assert_eq!(created.slug, "new-project");
+        assert_eq!(created.status, "active");
+
+        let updated = store
+            .update_project(
+                &created.id,
+                "Updated Project",
+                Some("Updated description"),
+                "/tmp/test-project-updated",
+                "dev",
+                "Gemini 3.1 Pro",
+                "active",
+            )
+            .unwrap();
+        assert_eq!(updated.name, "Updated Project");
+
+        let archived = store.archive_project(&created.id).unwrap();
+        assert!(archived);
+
+        let deleted = store.delete_project(&created.id).unwrap();
+        assert!(deleted);
 
         let _ = std::fs::remove_dir_all(dir);
     }

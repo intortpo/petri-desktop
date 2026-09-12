@@ -11,6 +11,7 @@ export type SlashItem = {
 
 export const PAGE_TO_WIN: Record<string, string> = {
   "/chat": "chat",
+  "/projects": "projects",
   "/github": "github",
   "/repos": "github",
   "/users": "users",
@@ -78,6 +79,7 @@ export const SHIPPED_COMMANDS: SlashItem[] = [
 
 export const SHIPPED_PAGES: SlashItem[] = [
   { cmd: "/chat", hint: "Chat", kind: "page" },
+  { cmd: "/projects", hint: "Projects", kind: "page" },
   { cmd: "/github", hint: "GitHub repos", kind: "page" },
   { cmd: "/repos", hint: "GitHub repos", kind: "page" },
   { cmd: "/users", hint: "Users", kind: "page" },
