@@ -98,45 +98,13 @@ button, input {
 
 button, .key, .send, .theme-key {
   position: relative;
-  isolation: isolate;
-  overflow: visible;
-  transition: transform 120ms var(--ease-out), background-color 160ms var(--ease-out), color 160ms var(--ease-out);
-}
-
-button::after, .key::after, .send::after, .theme-key::after {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  pointer-events: none;
-  opacity: 0;
-  z-index: 2;
-  background: conic-gradient(from var(--edge-a), transparent 0 62%, var(--ink) 78%, transparent 92%);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  transition: opacity 160ms var(--ease-out);
-}
-
-button:hover::after, button:focus-visible::after,
-.key:hover::after, .send:hover::after, .theme-key:hover::after {
-  opacity: 0.9;
-  animation: edge-spin 1.15s linear infinite;
+  transition: transform 120ms var(--ease-out), background-color 160ms var(--ease-out), border-color 160ms var(--ease-out), color 160ms var(--ease-out);
 }
 
 button:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-@keyframes edge-spin {
-  to { --edge-a: 360deg; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   button:active:not(:disabled) { transform: none; }
-  button::after, .key::after, .send::after, .theme-key::after {
-    animation: none !important;
-  }
 }

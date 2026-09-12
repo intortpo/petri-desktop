@@ -19,7 +19,22 @@
     getEverosProfile,
     formatEverosRecall,
   } from './lib/everos';
-  import { WIN_IDS, WIN_LABEL, allowedWins, defaultOpen, ensureWin, isDesktop, toggleWin, type WinId } from './lib/windows';
+  import {
+    WIN_IDS,
+    WIN_LABEL,
+    WIN_ICONS,
+    WIN_DESCRIPTIONS,
+    allowedWins,
+    activateTab,
+    closeTab,
+    cycleLayout,
+    defaultOpen,
+    ensureWin,
+    isDesktop,
+    toggleWin,
+    type WinId,
+    type LayoutMode,
+  } from './lib/windows';
   import { formatMessage } from './lib/format';
   import {
     ctxTitle,
@@ -119,6 +134,12 @@
   let modelRoot: HTMLDivElement | null = null;
   let view: "chat" | "repos" | "users" | "schedule" = "chat";
   let openWins: WinId[] = defaultOpen(typeof window !== "undefined" ? isDesktop(window.innerWidth) : true);
+  let activeWin: WinId = "chat";
+  let splitWin: WinId = "workspace";
+  let layoutMode: LayoutMode = "tabs";
+  let addTabMenuOpen = false;
+  let repoFilter = "";
+  let workspaceFilter = "";
   let session: { login: string; email: string } | null = null;
   let gateNotice = "";
   let patDraft = "";
@@ -130,6 +151,12 @@
   let systemPrompt = DEFAULT_SYSTEM_PROMPT;
   $: isSysminUser = isSysmin(session?.login, session?.email);
   $: visibleWinIds = allowedWins(isSysminUser);
+  $: filteredRepos = repoResult.items.filter(
+    (r) => !repoFilter || r.name.toLowerCase().includes(repoFilter.toLowerCase())
+  );
+  $: filteredTree = workspaceTree.filter(
+    (f) => !workspaceFilter || f.name.toLowerCase().includes(workspaceFilter.toLowerCase())
+  );
   let branchThreadId = "";
   let branchMessages: any[] = [];
   let workspaceTree: { name: string; path: string; kind: string }[] = [];
@@ -319,6 +346,20 @@
         showModes = false;
         showModels = false;
         ctxMenu = null;
+        addTabMenuOpen = false;
+      }
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const num = parseInt(e.key, 10);
+        if (num >= 1 && num <= openWins.length) {
+          e.preventDefault();
+          activateWindow(openWins[num - 1]);
+        } else if (e.key.toLowerCase() === "w") {
+          e.preventDefault();
+          closeWindow(activeWin);
+        } else if (e.key.toLowerCase() === "l") {
+          e.preventDefault();
+          toggleLayoutMode();
+        }
       }
     };
     document.addEventListener("pointerdown", onPtr);
@@ -482,20 +523,68 @@
     themeResolved = applyTheme(themePref, id);
   }
 
+  function activateWindow(id: WinId) {
+    if (!visibleWinIds.includes(id)) return;
+    const res = activateTab(openWins, activeWin, id);
+    openWins = res.open;
+    activeWin = res.active;
+    if (layoutMode === "split" && activeWin !== "chat") {
+      splitWin = id;
+    }
+    if (id === "repos" as never || id === "github") refreshRepos();
+    if (id === "users") refreshUsers();
+    if (id === "workspace") loadTree();
+    if (id === "schedule") openView("schedule");
+  }
+
+  function closeWindow(id: WinId) {
+    const res = closeTab(openWins, activeWin, id);
+    openWins = res.open;
+    activeWin = res.active;
+    if (splitWin === id) {
+      splitWin = openWins.find((w) => w !== "chat") || "workspace";
+    }
+  }
+
+  function toggleLayoutMode() {
+    layoutMode = cycleLayout(layoutMode);
+  }
+
   function openAllApps() {
     if (isSysminUser) {
       openWins = [...WIN_IDS];
+      layoutMode = "grid";
     }
   }
 
   function toggleWindow(id: WinId) {
     if (!visibleWinIds.includes(id)) return;
-    openWins = toggleWin(openWins, id);
-    if (id === "repos" as never) openView("repos");
-    if (id === "github") openView("repos");
-    if (id === "users") openView("users");
-    if (id === "workspace") loadTree();
-    if (id === "schedule") openView("schedule");
+    if (layoutMode === "tabs") {
+      activateWindow(id);
+    } else {
+      openWins = toggleWin(openWins, id);
+      if (openWins.includes(id)) {
+        activeWin = id;
+      } else if (activeWin === id) {
+        activeWin = openWins[0] || "chat";
+      }
+      if (id === "repos" as never || id === "github") refreshRepos();
+      if (id === "users") refreshUsers();
+      if (id === "workspace") loadTree();
+      if (id === "schedule") openView("schedule");
+    }
+  }
+
+  function isPaneVisible(id: WinId): boolean {
+    if (!openWins.includes(id)) return false;
+    if (layoutMode === "tabs") return activeWin === id;
+    if (layoutMode === "split") {
+      if (activeWin === "chat") {
+        return id === "chat" || id === splitWin;
+      }
+      return id === activeWin || id === "chat";
+    }
+    return true; // grid mode
   }
 
   async function loadTree() {
@@ -1017,11 +1106,31 @@
     } else if (cmd === "/apps") {
       if (isSysminUser) {
         openWins = [...WIN_IDS];
+        layoutMode = "grid";
         system(`Opened all apps (${WIN_IDS.length}): ${WIN_IDS.map((w) => WIN_LABEL[w]).join(", ")}`);
       } else {
         openWins = [...visibleWinIds];
         system(`Opened member apps: ${openWins.map((w) => WIN_LABEL[w]).join(", ")}`);
       }
+    } else if (cmd === "/layout" || cmd.startsWith("/layout ")) {
+      const mode = cmd.replace("/layout", "").trim() as LayoutMode;
+      if (mode === "tabs" || mode === "split" || mode === "grid") {
+        layoutMode = mode;
+        system(`Layout switched to ${mode} mode.`);
+      } else {
+        layoutMode = cycleLayout(layoutMode);
+        system(`Layout mode: ${layoutMode}`);
+      }
+    } else if (cmd === "/tab next") {
+      const idx = openWins.indexOf(activeWin);
+      const nextId = openWins[(idx + 1) % openWins.length];
+      activateWindow(nextId);
+      system(`Active tab: ${WIN_LABEL[nextId]}`);
+    } else if (cmd === "/tab prev") {
+      const idx = openWins.indexOf(activeWin);
+      const prevId = openWins[(idx - 1 + openWins.length) % openWins.length];
+      activateWindow(prevId);
+      system(`Active tab: ${WIN_LABEL[prevId]}`);
     } else if (moduleCommands[cmd] || moduleCommands[cmd.split(" ")[0]]) {
       const key = moduleCommands[cmd] ? cmd : cmd.split(" ")[0];
       system(`Module ${moduleCommands[key]} handled ${cmd} (no app rebuild).`);
@@ -1428,277 +1537,533 @@
       <button type="button" class="close" on:click={() => windowAction("close")} aria-label="Close">×</button>
     </div>
   </header>
-  <nav class="views" aria-label="Windows">
-    {#each visibleWinIds as id}
-      <button
-        type="button"
-        class:here={openWins.includes(id)}
-        on:click={() => toggleWindow(id)}
-        title={WIN_LABEL[id]}
-      >{WIN_LABEL[id]}</button>
-    {/each}
-    {#if isSysminUser}
-      <button
-        type="button"
-        class="all-apps-toggle"
-        class:here={WIN_IDS.every((id) => openWins.includes(id))}
-        on:click={openAllApps}
-        title="Open all apps"
-      >All apps</button>
-    {/if}
-  </nav>
+  <nav class="views tab-strip" aria-label="Windows">
+    <div class="tabs-list" role="tablist">
+      {#each openWins as id}
+        <div
+          class="tab-item"
+          class:here={activeWin === id}
+          role="tab"
+          aria-selected={activeWin === id}
+          tabindex="0"
+          on:click={() => activateWindow(id)}
+          on:keydown={(e) => e.key === "Enter" && activateWindow(id)}
+          title="{WIN_LABEL[id]} — {WIN_DESCRIPTIONS[id]}"
+        >
+          <svg class="tab-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d={WIN_ICONS[id]} />
+          </svg>
+          <span class="tab-label">{WIN_LABEL[id]}</span>
+          {#if openWins.length > 1}
+            <button
+              type="button"
+              class="tab-close"
+              aria-label="Close {WIN_LABEL[id]}"
+              title="Close tab (Alt+W)"
+              on:click|stopPropagation={() => closeWindow(id)}
+            >×</button>
+          {/if}
+        </div>
+      {/each}
+    </div>
 
-  <main class="desk">
-    {#if openWins.includes("workspace")}
-      <section class="pane glass manage" data-view="workspace">
-        <h1>Workspace</h1>
-        {#if workspaceTree.length === 0}
-          <p class="empty">{currentProject}</p>
-        {:else}
-          <ul class="cards">
-            {#each workspaceTree as node}
-              <li><strong>{node.name}</strong><span class="tag">{node.kind}</span></li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
-    {/if}
-    {#if openWins.includes("github")}
-      <section class="pane glass manage" data-view="repos">
-        <h1>GitHub repos</h1>
-        {#if !repoResult.ok}
-          <p class="empty">Could not load repos.</p>
-        {:else if repoResult.items.length === 0}
-          <p class="empty">No repos.</p>
-        {:else}
-          <ul class="cards">
-            {#each repoResult.items as repo}
-              <li>
-                <strong>{repo.name}</strong>
-                <span class="tag">{repo.visibility}</span>
-                {#if repo.branch}<span class="tag">{repo.branch}</span>{/if}
-                {#if repo.worktree}<span class="tag">{repo.worktree}</span>{/if}
-                {#if repo.commit}<span class="tag">{repo.commit}</span>{/if}
-                {#if repo.html_url}
-                  <a class="md-a" href={repo.html_url} rel="noopener noreferrer">{repo.html_url}</a>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
-    {/if}
-    {#if openWins.includes("users")}
-      <section class="pane glass manage" data-view="users">
-        <h1>Users</h1>
-        {#if !userResult.ok}
-          <p class="empty">Could not load users.</p>
-        {:else if userResult.items.length === 0}
-          <p class="empty">No users.</p>
-        {:else}
-          <ul class="cards">
-            {#each userResult.items as user}
-              <li>
-                <strong>{user.login}</strong>
-                <span class="tag">{user.role}</span>
-                <span class="tag">{user.status}</span>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
-    {/if}
-    {#if openWins.includes("schedule")}
-      <section class="pane glass manage" data-view="schedule">
-        <h1>Scheduled tasks</h1>
-        <form class="sched-form" on:submit|preventDefault={submitSchedule}>
-          <input bind:value={schedTitle} placeholder="title" />
-          <input bind:value={schedWhen} placeholder="run at" />
-          <input bind:value={schedInterval} placeholder="interval" />
-          <button type="submit" class="key sched-add">Add</button>
-        </form>
-        {#if schedNotice}<p class="empty">{schedNotice}</p>{/if}
-        {#if schedules.length === 0}
-          <p class="empty">No scheduled tasks.</p>
-        {:else}
-          <ul class="cards">
-            {#each schedules as row}
-              <li>
-                <strong>{row.title}</strong>
-                <span class="tag">{row.runAt || row.interval}</span>
-                <button type="button" class="key" on:click={() => dropSchedule(row.id)}>Cancel</button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
-    {/if}
-    {#if openWins.includes("settings")}
-      <section class="pane glass manage" data-view="settings">
-        <h1>Settings</h1>
-        <p class="tag">Theme pack</p>
-        <ul class="cards">
-          {#each PACKS as pack}
-            <li>
-              <button type="button" class:here={packId === pack.id} on:click={() => setPack(pack.id)}>{pack.name}</button>
-            </li>
-          {/each}
-        </ul>
-        {#if isSysminUser}
-          <p class="tag">System prompt</p>
-          <textarea class="prompt-box" bind:value={systemPrompt} rows="5"></textarea>
-        {/if}
-      </section>
-    {/if}
-    {#if openWins.includes("profile")}
-      <section class="pane glass manage" data-view="profile">
-        <h1>Profile</h1>
-        <p><strong>{session?.login}</strong></p>
-        <p class="tag">{session?.email || "github"}</p>
-        <p class="tag">{isSysminUser ? "sysmin" : "member"}</p>
-      </section>
-    {/if}
-    {#if openWins.includes("branch")}
-      <section class="pane glass manage" data-view="branch">
-        <h1>Branch</h1>
-        {#if !branchThreadId}
-          <p class="empty">Right-click a message to branch off.</p>
-        {:else}
-          {#each branchMessages as msg}
-            <article class="bubble {msg.role}">
-              <div class="role">{msg.role}</div>
-              <div class="pad">{msg.content}</div>
-            </article>
-          {/each}
-        {/if}
-      </section>
-    {/if}
-    {#if openWins.includes("chat")}
-      <section class="pane glass chat-pane">
-    <nav class="trail">
-      <button type="button" data-ctx="shell" on:click={() => handleCommand("/tree")}>Home</button>
-      {#each trailThreads as segment, i}
-        <span class="sep">/</span>
+    <div class="tab-controls">
+      <div class="add-tab-wrap">
         <button
           type="button"
-          data-ctx="thread"
-          data-id={segment.id}
-          class={segment.id === currentThreadId ? 'here' : ''}
-          on:click={() => openThread(segment.id)}
-        >
-          {threadLabel(segment)}
-          {#if unreadOnTrail(segment) > 0 && segment.id !== currentThreadId}
-            <i class="badge">{unreadOnTrail(segment)}</i>
-          {/if}
-        </button>
-        {#if i === trailThreads.length - 1 && currentThread?.parent_id}
-          <span class="child">child</span>
-        {/if}
-      {/each}
-    </nav>
-
-    <div class="body">
-      {#if showTree}
-        <aside class="tree">
-          <div class="tree-h">thread tree</div>
-          {#each treeChildren(null) as root}
-            <button type="button" data-ctx="thread" data-id={root.id} class={root.id === currentThreadId ? 'here' : ''} on:click={() => openThread(root.id)}>
-              {threadLabel(root)}
-              {#if unread[root.id]}<i class="badge">{unread[root.id]}</i>{/if}
-            </button>
-            {#each treeChildren(root.id) as child}
-              <button type="button" data-ctx="thread" data-id={child.id} class="indent {child.id === currentThreadId ? 'here' : ''}" on:click={() => openThread(child.id)}>
-                {threadLabel(child)} <em>{child.status}</em>
+          class="tab-action-btn add-tab-btn"
+          class:open={addTabMenuOpen}
+          aria-label="Add tab"
+          title="Open new tab"
+          on:click={() => (addTabMenuOpen = !addTabMenuOpen)}
+        >+</button>
+        {#if addTabMenuOpen}
+          <div class="add-tab-menu glass" role="menu">
+            <header class="menu-head">Open Window</header>
+            {#each visibleWinIds as id}
+              <button
+                type="button"
+                role="menuitem"
+                class="menu-item"
+                class:active={openWins.includes(id)}
+                on:click={() => {
+                  activateWindow(id);
+                  addTabMenuOpen = false;
+                }}
+              >
+                <svg class="menu-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                  <path fill="currentColor" d={WIN_ICONS[id]} />
+                </svg>
+                <span class="menu-label">{WIN_LABEL[id]}</span>
+                {#if openWins.includes(id)}
+                  <span class="menu-badge">open</span>
+                {/if}
               </button>
-              {#each treeChildren(child.id) as grand}
-                <button type="button" data-ctx="thread" data-id={grand.id} class="indent2 {grand.id === currentThreadId ? 'here' : ''}" on:click={() => openThread(grand.id)}>
-                  {threadLabel(grand)}
+            {/each}
+          </div>
+        {/if}
+      </div>
+
+      <div class="layout-switch" role="group" aria-label="Layout mode">
+        <button
+          type="button"
+          class="layout-btn"
+          class:here={layoutMode === 'tabs'}
+          title="Tabs Mode (Alt+L) — Focused single window"
+          aria-pressed={layoutMode === 'tabs'}
+          on:click={() => (layoutMode = 'tabs')}
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+            <rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
+            <line x1="2" y1="6" x2="14" y2="6" stroke="currentColor" stroke-width="1.2" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="layout-btn"
+          class:here={layoutMode === 'split'}
+          title="Split Mode (Alt+L) — Dual-pane workbench"
+          aria-pressed={layoutMode === 'split'}
+          on:click={() => (layoutMode = 'split')}
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+            <rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
+            <line x1="8" y1="3" x2="8" y2="13" stroke="currentColor" stroke-width="1.2" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="layout-btn"
+          class:here={layoutMode === 'grid'}
+          title="Grid Mode (Alt+L) — Multi-pane tiled dashboard"
+          aria-pressed={layoutMode === 'grid'}
+          on:click={() => (layoutMode = 'grid')}
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+            <rect x="2" y="2" width="5" height="5" rx="1" />
+            <rect x="9" y="2" width="5" height="5" rx="1" />
+            <rect x="2" y="9" width="5" height="5" rx="1" />
+            <rect x="9" y="9" width="5" height="5" rx="1" />
+          </svg>
+        </button>
+      </div>
+
+      {#if isSysminUser}
+        <button
+          type="button"
+          class="all-apps-toggle"
+          class:here={WIN_IDS.every((id) => openWins.includes(id))}
+          on:click={openAllApps}
+          title="Open all apps in grid dashboard"
+        >All apps</button>
+      {/if}
+    </div>
+  </nav>
+
+  <main class="desk mode-{layoutMode}">
+    {#if isPaneVisible("workspace")}
+      <section class="pane glass manage" data-view="workspace">
+        <header class="pane-head">
+          <div class="pane-brand">
+            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d={WIN_ICONS["workspace"]} />
+            </svg>
+            <h1>Workspace</h1>
+            <span class="pane-badge">{filteredTree.length}</span>
+          </div>
+          <div class="pane-actions">
+            <input
+              type="text"
+              class="pane-filter"
+              placeholder="Filter files…"
+              bind:value={workspaceFilter}
+              aria-label="Filter workspace files"
+            />
+            <button type="button" class="pane-btn" title="Refresh files" on:click={loadTree}>⟳</button>
+            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('workspace'); }}>□</button>
+            {#if openWins.length > 1}
+              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('workspace')}>×</button>
+            {/if}
+          </div>
+        </header>
+        <div class="pane-content">
+          {#if workspaceTree.length === 0}
+            <p class="empty">{currentProject}</p>
+          {:else if filteredTree.length === 0}
+            <p class="empty">No matching files.</p>
+          {:else}
+            <ul class="cards">
+              {#each filteredTree as node}
+                <li><strong>{node.name}</strong><span class="tag">{node.kind}</span></li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      </section>
+    {/if}
+
+    {#if isPaneVisible("github")}
+      <section class="pane glass manage" data-view="repos">
+        <header class="pane-head">
+          <div class="pane-brand">
+            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d={WIN_ICONS["github"]} />
+            </svg>
+            <h1>GitHub repos</h1>
+            <span class="pane-badge">{filteredRepos.length}</span>
+          </div>
+          <div class="pane-actions">
+            <input
+              type="text"
+              class="pane-filter"
+              placeholder="Filter repos…"
+              bind:value={repoFilter}
+              aria-label="Filter repositories"
+            />
+            <button type="button" class="pane-btn" title="Refresh repositories" on:click={refreshRepos}>⟳</button>
+            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('github'); }}>□</button>
+            {#if openWins.length > 1}
+              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('github')}>×</button>
+            {/if}
+          </div>
+        </header>
+        <div class="pane-content">
+          {#if !repoResult.ok}
+            <p class="empty">Could not load repos.</p>
+          {:else if repoResult.items.length === 0}
+            <p class="empty">No repos.</p>
+          {:else if filteredRepos.length === 0}
+            <p class="empty">No matching repos.</p>
+          {:else}
+            <ul class="cards">
+              {#each filteredRepos as repo}
+                <li>
+                  <strong>{repo.name}</strong>
+                  <span class="tag">{repo.visibility}</span>
+                  {#if repo.branch}<span class="tag">{repo.branch}</span>{/if}
+                  {#if repo.worktree}<span class="tag">{repo.worktree}</span>{/if}
+                  {#if repo.commit}<span class="tag">{repo.commit}</span>{/if}
+                  {#if repo.html_url}
+                    <a class="md-a" href={repo.html_url} rel="noopener noreferrer">{repo.html_url}</a>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      </section>
+    {/if}
+
+    {#if isPaneVisible("users")}
+      <section class="pane glass manage" data-view="users">
+        <header class="pane-head">
+          <div class="pane-brand">
+            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d={WIN_ICONS["users"]} />
+            </svg>
+            <h1>Users</h1>
+            <span class="pane-badge">{userResult.items.length}</span>
+          </div>
+          <div class="pane-actions">
+            <button type="button" class="pane-btn" title="Refresh users" on:click={refreshUsers}>⟳</button>
+            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('users'); }}>□</button>
+            {#if openWins.length > 1}
+              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('users')}>×</button>
+            {/if}
+          </div>
+        </header>
+        <div class="pane-content">
+          {#if !userResult.ok}
+            <p class="empty">Could not load users.</p>
+          {:else if userResult.items.length === 0}
+            <p class="empty">No users.</p>
+          {:else}
+            <ul class="cards">
+              {#each userResult.items as user}
+                <li>
+                  <strong>{user.login}</strong>
+                  <span class="tag">{user.role}</span>
+                  <span class="tag">{user.status}</span>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      </section>
+    {/if}
+
+    {#if isPaneVisible("schedule")}
+      <section class="pane glass manage" data-view="schedule">
+        <header class="pane-head">
+          <div class="pane-brand">
+            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d={WIN_ICONS["schedule"]} />
+            </svg>
+            <h1>Scheduled tasks</h1>
+            <span class="pane-badge">{schedules.length}</span>
+          </div>
+          <div class="pane-actions">
+            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('schedule'); }}>□</button>
+            {#if openWins.length > 1}
+              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('schedule')}>×</button>
+            {/if}
+          </div>
+        </header>
+        <div class="pane-content">
+          <form class="sched-form" on:submit|preventDefault={submitSchedule}>
+            <input bind:value={schedTitle} placeholder="title" />
+            <input bind:value={schedWhen} placeholder="run at" />
+            <input bind:value={schedInterval} placeholder="interval" />
+            <button type="submit" class="key sched-add">Add</button>
+          </form>
+          {#if schedNotice}<p class="empty">{schedNotice}</p>{/if}
+          {#if schedules.length === 0}
+            <p class="empty">No scheduled tasks.</p>
+          {:else}
+            <ul class="cards">
+              {#each schedules as row}
+                <li>
+                  <strong>{row.title}</strong>
+                  <span class="tag">{row.runAt || row.interval}</span>
+                  <button type="button" class="key" on:click={() => dropSchedule(row.id)}>Cancel</button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      </section>
+    {/if}
+
+    {#if isPaneVisible("settings")}
+      <section class="pane glass manage" data-view="settings">
+        <header class="pane-head">
+          <div class="pane-brand">
+            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d={WIN_ICONS["settings"]} />
+            </svg>
+            <h1>Settings</h1>
+          </div>
+          <div class="pane-actions">
+            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('settings'); }}>□</button>
+            {#if openWins.length > 1}
+              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('settings')}>×</button>
+            {/if}
+          </div>
+        </header>
+        <div class="pane-content">
+          <p class="tag">Theme pack</p>
+          <ul class="cards">
+            {#each PACKS as pack}
+              <li>
+                <button type="button" class:here={packId === pack.id} on:click={() => setPack(pack.id)}>{pack.name}</button>
+              </li>
+            {/each}
+          </ul>
+          {#if isSysminUser}
+            <p class="tag">System prompt</p>
+            <textarea class="prompt-box" bind:value={systemPrompt} rows="5"></textarea>
+          {/if}
+        </div>
+      </section>
+    {/if}
+
+    {#if isPaneVisible("profile")}
+      <section class="pane glass manage" data-view="profile">
+        <header class="pane-head">
+          <div class="pane-brand">
+            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d={WIN_ICONS["profile"]} />
+            </svg>
+            <h1>Profile</h1>
+          </div>
+          <div class="pane-actions">
+            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('profile'); }}>□</button>
+            {#if openWins.length > 1}
+              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('profile')}>×</button>
+            {/if}
+          </div>
+        </header>
+        <div class="pane-content">
+          <p><strong>{session?.login}</strong></p>
+          <p class="tag">{session?.email || "github"}</p>
+          <p class="tag">{isSysminUser ? "sysmin" : "member"}</p>
+        </div>
+      </section>
+    {/if}
+
+    {#if isPaneVisible("branch")}
+      <section class="pane glass manage" data-view="branch">
+        <header class="pane-head">
+          <div class="pane-brand">
+            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d={WIN_ICONS["branch"]} />
+            </svg>
+            <h1>Branch</h1>
+            {#if branchThreadId}<span class="pane-badge">#{shortId(branchThreadId)}</span>{/if}
+          </div>
+          <div class="pane-actions">
+            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('branch'); }}>□</button>
+            {#if openWins.length > 1}
+              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('branch')}>×</button>
+            {/if}
+          </div>
+        </header>
+        <div class="pane-content">
+          {#if !branchThreadId}
+            <p class="empty">Right-click a message to branch off.</p>
+          {:else}
+            {#each branchMessages as msg}
+              <article class="bubble {msg.role}">
+                <div class="role">{msg.role}</div>
+                <div class="pad">{msg.content}</div>
+              </article>
+            {/each}
+          {/if}
+        </div>
+      </section>
+    {/if}
+
+    {#if isPaneVisible("chat")}
+      <section class="pane glass chat-pane" data-view="chat">
+        <header class="pane-head">
+          <div class="pane-brand">
+            <svg class="pane-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d={WIN_ICONS["chat"]} />
+            </svg>
+            <h1>Chat</h1>
+            {#if currentThread}
+              <span class="pane-badge">{currentThread.model}</span>
+            {/if}
+          </div>
+          <nav class="trail">
+            <button type="button" data-ctx="shell" on:click={() => handleCommand("/tree")}>Home</button>
+            {#each trailThreads as segment, i}
+              <span class="sep">/</span>
+              <button
+                type="button"
+                data-ctx="thread"
+                data-id={segment.id}
+                class={segment.id === currentThreadId ? 'here' : ''}
+                on:click={() => openThread(segment.id)}
+              >
+                {threadLabel(segment)}
+                {#if unreadOnTrail(segment) > 0 && segment.id !== currentThreadId}
+                  <i class="badge">{unreadOnTrail(segment)}</i>
+                {/if}
+              </button>
+              {#if i === trailThreads.length - 1 && currentThread?.parent_id}
+                <span class="child">child</span>
+              {/if}
+            {/each}
+          </nav>
+          <div class="pane-actions">
+            <button type="button" class="pane-btn" title="Toggle thread tree" on:click={() => (showTree = !showTree)}>☷</button>
+            <button type="button" class="pane-btn" title="Focus window" on:click={() => { layoutMode = 'tabs'; activateWindow('chat'); }}>□</button>
+            {#if openWins.length > 1}
+              <button type="button" class="pane-btn close" title="Close window" on:click={() => closeWindow('chat')}>×</button>
+            {/if}
+          </div>
+        </header>
+
+        <div class="body">
+          {#if showTree}
+            <aside class="tree">
+              <div class="tree-h">thread tree</div>
+              {#each treeChildren(null) as root}
+                <button type="button" data-ctx="thread" data-id={root.id} class={root.id === currentThreadId ? 'here' : ''} on:click={() => openThread(root.id)}>
+                  {threadLabel(root)}
+                  {#if unread[root.id]}<i class="badge">{unread[root.id]}</i>{/if}
+                </button>
+                {#each treeChildren(root.id) as child}
+                  <button type="button" data-ctx="thread" data-id={child.id} class="indent {child.id === currentThreadId ? 'here' : ''}" on:click={() => openThread(child.id)}>
+                    {threadLabel(child)} <em>{child.status}</em>
+                  </button>
+                  {#each treeChildren(child.id) as grand}
+                    <button type="button" data-ctx="thread" data-id={grand.id} class="indent2 {grand.id === currentThreadId ? 'here' : ''}" on:click={() => openThread(grand.id)}>
+                      {threadLabel(grand)}
+                    </button>
+                  {/each}
+                {/each}
+              {/each}
+              {#if treeThreads.length === 0}
+                <p class="empty">No threads.</p>
+              {/if}
+            </aside>
+          {/if}
+
+          <section class="lcd" data-ctx="lcd">
+            {#if messages.length === 0}
+              <div class="idle">No thread yet</div>
+            {/if}
+            {#each messages as msg, i}
+              {#if msg.role === "fork"}
+                {@const card = parseFork(msg)}
+                {#if card}
+                  <article class="bubble fork" data-ctx="fork" data-idx={i}>
+                    <div class="role">fork</div>
+                    <div class="fork-row">
+                      <button type="button" class="fork-main" on:click={() => toggleFork(card.child_id)}>
+                        <span class="id">#{shortId(card.child_id)}</span>
+                        <span class="st {card.status}">{card.status}</span>
+                        <div>{card.title}</div>
+                      </button>
+                      <button type="button" class="key" on:click={() => chaseFork(card)}>chase</button>
+                    </div>
+                    {#if expandedForks[card.child_id] || card.status === "done" || card.status === "failed"}
+                      {#if card.result}
+                        <div class="result md">{@html formatMessage(card.result)}</div>
+                      {:else if card.status === "running"}
+                        <p class="muted">running…</p>
+                      {/if}
+                    {/if}
+                  </article>
+                {/if}
+              {:else}
+                <article class="bubble {msg.role}" data-ctx="message" data-idx={i}>
+                  <div class="role">{msg.role}</div>
+                  {#if msg.role === "user"}
+                    <div class="pad">{msg.content}</div>
+                  {:else}
+                    <div class="pad md">{@html formatMessage(msg.content)}</div>
+                  {/if}
+                </article>
+              {/if}
+            {/each}
+          </section>
+        </div>
+
+        <form class="dock glass" data-ctx="composer" on:submit|preventDefault={handleSend}>
+          {#if slashHits.length}
+            <div class="slash-menu" role="listbox" aria-label="Slash commands">
+              {#each slashHits as item, i}
+                <button
+                  type="button"
+                  role="option"
+                  class:here={i === slashIndex}
+                  aria-selected={i === slashIndex}
+                  on:click={() => pickSlash(item)}
+                >
+                  <span>{item.cmd}</span>
+                  <span class="tag">{item.hint}</span>
                 </button>
               {/each}
-            {/each}
-          {/each}
-          {#if treeThreads.length === 0}
-            <p class="empty">No threads.</p>
+            </div>
           {/if}
-        </aside>
-      {/if}
-
-      <section class="lcd" data-ctx="lcd">
-        {#if messages.length === 0}
-          <div class="idle">No thread yet</div>
-        {/if}
-        {#each messages as msg, i}
-          {#if msg.role === "fork"}
-            {@const card = parseFork(msg)}
-            {#if card}
-              <article class="bubble fork" data-ctx="fork" data-idx={i}>
-                <div class="role">fork</div>
-                <div class="fork-row">
-                  <button type="button" class="fork-main" on:click={() => toggleFork(card.child_id)}>
-                    <span class="id">#{shortId(card.child_id)}</span>
-                    <span class="st {card.status}">{card.status}</span>
-                    <div>{card.title}</div>
-                  </button>
-                  <button type="button" class="key" on:click={() => chaseFork(card)}>chase</button>
-                </div>
-                {#if expandedForks[card.child_id] || card.status === "done" || card.status === "failed"}
-                  {#if card.result}
-                    <div class="result md">{@html formatMessage(card.result)}</div>
-                  {:else if card.status === "running"}
-                    <p class="muted">running…</p>
-                  {/if}
-                {/if}
-              </article>
-            {/if}
-          {:else}
-            <article class="bubble {msg.role}" data-ctx="message" data-idx={i}>
-              <div class="role">{msg.role}</div>
-              {#if msg.role === "user"}
-                <div class="pad">{msg.content}</div>
-              {:else}
-                <div class="pad md">{@html formatMessage(msg.content)}</div>
-              {/if}
-            </article>
-          {/if}
-        {/each}
-      </section>
-    </div>
+          <div class="dock-row">
+            <input
+              type="text"
+              bind:this={composerEl}
+              bind:value={composerInput}
+              placeholder="message or /fork /task /theme /plan…"
+              autocomplete="off"
+              on:keydown={onComposerKey}
+            />
+            <button type="submit" class="send">SEND</button>
+          </div>
+        </form>
       </section>
     {/if}
-
   </main>
-
-  {#if openWins.includes("chat")}
-  <form class="dock glass" data-ctx="composer" on:submit|preventDefault={handleSend}>
-    {#if slashHits.length}
-      <div class="slash-menu" role="listbox" aria-label="Slash commands">
-        {#each slashHits as item, i}
-          <button
-            type="button"
-            role="option"
-            class:here={i === slashIndex}
-            aria-selected={i === slashIndex}
-            on:click={() => pickSlash(item)}
-          >
-            <span>{item.cmd}</span>
-            <span class="tag">{item.hint}</span>
-          </button>
-        {/each}
-      </div>
-    {/if}
-    <div class="dock-row">
-      <input
-        type="text"
-        bind:this={composerEl}
-        bind:value={composerInput}
-        placeholder="message or /fork /task /theme /plan…"
-        autocomplete="off"
-        on:keydown={onComposerKey}
-      />
-      <button type="submit" class="send">SEND</button>
-    </div>
-  </form>
-  {/if}
 
   {#if ctxMenu}
     <div
@@ -1918,36 +2283,313 @@
   .win button:hover { background: var(--panel); color: var(--ink); }
   .win .close:hover { background: var(--hot); color: var(--hot-ink); }
 
-  .views {
+  /* Tab Strip */
+  .tab-strip {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 12px var(--gutter) 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 16px;
+    background: #080a0d;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     flex-shrink: 0;
+    user-select: none;
+    overflow-x: auto;
   }
-  .views button {
+  .tabs-list {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .tab-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .tab-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ink);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  .tab-item.here {
+    background: #11141c;
+    color: #f1f5f9;
+    font-weight: 600;
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+  .tab-icon {
+    flex-shrink: 0;
+    opacity: 0.75;
+  }
+  .tab-item.here .tab-icon {
+    opacity: 1;
+    color: #fff;
+  }
+  .tab-label {
+    min-width: 0;
+  }
+  .tab-close {
     background: none;
     border: 0;
     color: var(--muted);
-    padding: 8px 12px;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    margin-left: 2px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+  }
+  .tab-close:hover {
+    opacity: 1;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .tab-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .add-tab-wrap {
+    position: relative;
+  }
+  .tab-action-btn {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 8px;
-    font-size: 13px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--muted);
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
   }
-  .views button.here {
+  .tab-action-btn:hover, .tab-action-btn.open {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+  .add-tab-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 10;
+    min-width: 200px;
+    background: #0b0e14;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+  }
+  .menu-head {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    padding: 6px 10px;
+  }
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 0;
+    background: none;
     color: var(--ink);
-    background: var(--panel);
-    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
   }
+  .menu-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .menu-badge {
+    margin-left: auto;
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 6px;
+    border-radius: 99px;
+  }
+  .layout-switch {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .layout-btn {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .layout-btn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .layout-btn.here {
+    background: #181d26;
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+  .all-apps-toggle {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--muted);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .all-apps-toggle:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+  .all-apps-toggle.here {
+    background: #181d26;
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
   .manage {
     flex: 1;
     min-height: 0;
-    overflow: auto;
-    padding: 8px 0 32px;
+    display: flex;
+    flex-direction: column;
   }
-  .manage h1 {
-    font-size: 22px;
-    font-weight: 650;
-    margin: 0 0 24px;
+  .pane-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 24px 36px;
+  }
+  .pane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(10, 13, 18, 0.85);
+    backdrop-filter: blur(12px);
+    flex-shrink: 0;
+  }
+  .pane-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .pane-brand h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0;
+    white-space: nowrap;
+  }
+  .pane-icon {
+    flex-shrink: 0;
+    color: var(--muted);
+  }
+  .pane-badge {
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--muted);
+    padding: 2px 8px;
+    border-radius: 99px;
+  }
+  .pane-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .pane-btn {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .pane-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+  .pane-btn.close:hover {
+    background: var(--hot, #e05252);
+    color: #fff;
+    border-color: transparent;
+  }
+  .pane-filter {
+    height: 28px;
+    border-radius: 6px;
+    background: #06070a;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--ink);
+    padding: 0 10px;
+    font-size: 12px;
+    outline: none;
+    width: 140px;
+  }
+  .pane-filter:focus {
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+  .prompt-box {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #090a0d;
+    color: #f1f5f9;
+    padding: 12px 16px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    resize: vertical;
+    box-sizing: border-box;
   }
   .cards {
     list-style: none;
@@ -2187,16 +2829,16 @@
     position: relative;
     flex-shrink: 0;
     z-index: 4;
-    padding: 16px var(--gutter) calc(28px + env(safe-area-inset-bottom, 0px));
+    padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px));
     background: #080a0d !important;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
   .slash-menu {
     position: absolute;
-    left: var(--gutter);
-    right: var(--gutter);
-    bottom: calc(100% - 8px);
-    max-height: 280px;
+    left: 18px;
+    right: 18px;
+    bottom: calc(100% - 4px);
+    max-height: 260px;
     overflow: auto;
     padding: 8px;
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2222,34 +2864,34 @@
     background: var(--panel);
   }
   .dock-row {
-    max-width: var(--page);
     width: 100%;
     margin: 0 auto;
     display: flex;
-    gap: 12px;
+    gap: 10px;
   }
   .dock input {
     flex: 1;
-    height: 56px;
-    border-radius: 12px;
+    height: 50px;
+    border-radius: 11px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     background: #090a0d;
     color: var(--ink);
-    padding: 0 20px;
-    font-size: 16px;
+    padding: 0 16px;
+    font-size: 15px;
     outline: none;
   }
   .dock input:focus { border-color: var(--slate); }
   .send {
-    min-width: 108px;
-    height: 56px;
+    min-width: 96px;
+    height: 50px;
     border: 0;
-    border-radius: 12px;
+    border-radius: 11px;
     background: var(--hot);
     color: var(--hot-ink);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 650;
     letter-spacing: 0.06em;
+    cursor: pointer;
   }
   .send:hover { filter: brightness(1.05); }
 
@@ -2290,26 +2932,71 @@
   }
   .ctx-menu button:disabled { opacity: 0.4; }
   .ctx-mark { color: var(--ink); font-size: 8px; }
+
   .desk {
     flex: 1;
     min-height: 0;
-    display: flex;
-    gap: 12px;
     padding: 12px;
-    overflow: auto;
+    overflow: hidden;
+    gap: 12px;
   }
+  .desk.mode-tabs {
+    display: flex;
+  }
+  .desk.mode-tabs > .pane {
+    flex: 1;
+    height: 100%;
+    min-width: 0;
+  }
+  .desk.mode-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    height: 100%;
+  }
+  .desk.mode-split > .pane {
+    height: 100%;
+    min-width: 0;
+  }
+  .desk.mode-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 12px;
+    height: 100%;
+    overflow-y: auto;
+  }
+  .desk.mode-grid > .pane {
+    min-height: 420px;
+  }
+  @media (max-width: 900px) {
+    .desk.mode-split {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .pane {
-    flex: 1 1 320px;
-    min-width: 260px;
-    min-height: 0;
+    border-radius: 16px;
     display: flex;
     flex-direction: column;
-    border-radius: 16px;
-    overflow: auto;
-    background: #0a0c10;
+    background: #090b0e;
     border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
   }
-  .chat-pane { min-width: 360px; }
+  .chat-pane {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .chat-pane .body {
+    flex: 1;
+    min-height: 0;
+    padding: 16px;
+    display: flex;
+    gap: 16px;
+  }
   .gate {
     position: relative;
     z-index: 2;
