@@ -1,6 +1,6 @@
 # Petri & EverOS Domain Context
 
-Petri is a desktop agent cockpit providing durable threads, execution modes, tool fencing, and local-first memory over Antigravity CLI (`agy`) sessions. EverOS provides the local-first, Markdown-native memory operating system layer.
+Petri is a desktop agent platform providing durable threads, execution modes, tool fencing, and local-first memory over Antigravity CLI (`agy`) sessions. EverOS provides the local-first, Markdown-native memory operating system layer.
 
 ## Language
 

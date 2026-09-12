@@ -286,7 +286,7 @@ impl Store {
                     "ws-default",
                     "Petri Desktop",
                     "petri-desktop",
-                    "Petri AI Pair-Programming Cockpit",
+                    "Petri AI Pair-Programming Workspace",
                     &cur_dir,
                     "code",
                     "Gemini 3.1 Pro",

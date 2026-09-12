@@ -1663,8 +1663,8 @@
     </div>
 
     <!-- Navigation Section -->
-    <nav class="dash-nav" aria-label="Cockpit Navigation">
-      <div class="nav-section-title">COCKPIT</div>
+    <nav class="dash-nav" aria-label="Navigation">
+      <div class="nav-section-title">NAVIGATION</div>
       {#each visibleWinIds as id}
         <button
           type="button"
@@ -1716,7 +1716,7 @@
     <!-- DASHBOARD TOPBAR -->
     <header class="chrome dash-topbar">
       <div class="lead">
-        <h2 class="view-title">{WIN_LABEL[activeWin] || "Cockpit"}</h2>
+        <h2 class="view-title">{WIN_LABEL[activeWin] || "Dashboard"}</h2>
         <div class="proj" data-ctx="mode" bind:this={modeRoot}>
           <button
             type="button"

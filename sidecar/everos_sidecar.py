@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-EverOS Sidecar for Petri Agent Cockpit
+EverOS Sidecar for Petri Agent Desktop
 Provides local-first, Markdown-native memory operations (episodes, profiles, skills)
 with hybrid keyword and semantic indexing, managed as a child process via JSON over stdin/stdout.
 """

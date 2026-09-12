@@ -1,6 +1,6 @@
 # Petri
 
-Desktop agent cockpit. Tauri + Svelte over official `agy` login — no API keys in the app.
+Desktop agent workspace. Tauri + Svelte over official `agy` login — no API keys in the app.
 
 Petri keeps durable threads, forks sub-tasks, and talks to the workspace through a composer. Auth is the Antigravity CLI session (`agy`) plus Google account credentials. Model calls never take `GEMINI_API_KEY` / `GOOGLE_API_KEY` from this repo.
 

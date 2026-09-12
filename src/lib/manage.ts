@@ -91,7 +91,7 @@ export const FIXTURE_PROJECTS: unknown[] = [
     workspace_id: "ws-default",
     name: "Petri Desktop",
     slug: "petri-desktop",
-    description: "Petri AI Pair-Programming Cockpit",
+    description: "Petri AI Pair-Programming Workspace",
     root_path: "/home/hideo/Documents/GitHub/hideo/deepagents-app",
     default_mode: "code",
     default_model: "Gemini 3.1 Pro",

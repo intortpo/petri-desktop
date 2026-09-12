@@ -23,7 +23,7 @@ As the Petri agent system expanded to handle multiple codebases, team members, b
    - Four discrete roles: `sysmin`, `admin`, `member`, `viewer`.
    - System invariant: Prevent deletion of the last remaining `sysmin` user to avert orphan administrative lockouts.
 
-4. **UI Cockpit Integration**:
+4. **UI Dashboard Integration**:
    - Implement `/projects` page with obsidian frosted dark glass aesthetic (`#06070a`, `#080a0d`), KPI cards, search and status filters, project activation, and modal project creation.
    - Upgrade `/users` page with user KPI bar, role switcher dropdowns, status toggles, user creation/invitation modal, and delete protections.
 
